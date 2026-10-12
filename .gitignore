@@ -1,0 +1,9 @@
+node_modules
+dist
+.DS_Store
+*.local
+
+# sing-box sidecars are fetched by scripts/fetch-core.mjs, never committed
+src-tauri/binaries/
+src-tauri/target
+src-tauri/gen
