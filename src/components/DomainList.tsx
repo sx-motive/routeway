@@ -49,7 +49,7 @@ export function DomainList({ domains, onChange }: DomainListProps) {
   }
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col border border-border">
+    <section className="flex flex-col border border-border">
       <header className="flex items-center justify-between border-b border-border px-3 py-2">
         <h2 className="text-xs font-medium tracking-wide text-fg-muted uppercase">
           Домены через сервер
@@ -76,7 +76,7 @@ export function DomainList({ domains, onChange }: DomainListProps) {
 
       {error ? <p className="px-3 pt-2 text-xs text-danger">{error}</p> : null}
 
-      <div className="thin-scroll min-h-0 flex-1 overflow-y-auto">
+      <div className="thin-scroll max-h-64 overflow-y-auto">
         {sorted.length === 0 ? (
           <p className="px-3 py-6 text-center text-xs text-fg-muted/60">
             Пока весь трафик идёт напрямую.
