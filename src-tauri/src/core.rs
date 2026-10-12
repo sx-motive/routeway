@@ -30,6 +30,22 @@ impl CoreState {
         self.log.lock().map(|l| l.clone()).unwrap_or_default()
     }
 
+    fn set_child(&self, child: Option<CommandChild>) {
+        if let Ok(mut slot) = self.child.lock() {
+            *slot = child;
+        }
+    }
+
+    fn take_child(&self) -> Option<CommandChild> {
+        self.child.lock().ok().and_then(|mut slot| slot.take())
+    }
+
+    fn clear_log(&self) {
+        if let Ok(mut log) = self.log.lock() {
+            log.clear();
+        }
+    }
+
     fn push_log(&self, line: String) {
         if let Ok(mut log) = self.log.lock() {
             if log.len() >= LOG_CAPACITY {
@@ -78,12 +94,8 @@ pub async fn start(app: &AppHandle, settings: &Settings) -> Result<(), String> {
 
     {
         let state = app.state::<CoreState>();
-        if let Ok(mut slot) = state.child.lock() {
-            *slot = Some(child);
-        }
-        if let Ok(mut log) = state.log.lock() {
-            log.clear();
-        }
+        state.set_child(Some(child));
+        state.clear_log();
     }
 
     let handle = app.clone();
@@ -100,9 +112,7 @@ pub async fn start(app: &AppHandle, settings: &Settings) -> Result<(), String> {
                     let _ = handle.emit("core-log", line);
                 }
                 CommandEvent::Terminated(payload) => {
-                    if let Ok(mut slot) = state.child.lock() {
-                        *slot = None;
-                    }
+                    state.set_child(None);
                     let reason = format!("ядро остановилось (код {:?})", payload.code);
                     state.push_log(reason.clone());
                     let _ = handle.emit("core-exit", reason);
@@ -133,9 +143,7 @@ pub async fn start(app: &AppHandle, settings: &Settings) -> Result<(), String> {
 }
 
 pub fn stop(app: &AppHandle) {
-    let state = app.state::<CoreState>();
-    let child = state.child.lock().ok().and_then(|mut slot| slot.take());
-    if let Some(child) = child {
+    if let Some(child) = app.state::<CoreState>().take_child() {
         let _ = child.kill();
     }
 }

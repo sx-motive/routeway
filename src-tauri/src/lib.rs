@@ -57,8 +57,29 @@ async fn save_settings(app: AppHandle, settings: Settings) -> Result<Status, Str
 
     if app.state::<CoreState>().is_running() {
         core::start(&app, &settings).await?;
+        // The port may have moved or the user may have turned the system proxy
+        // off; without this the OS would keep pointing at a stale port.
+        reconcile_system_proxy(&settings).await?;
     }
     Ok(status_of(&app, settings).await)
+}
+
+/// Brings the system proxy in line with the settings while the core is running.
+async fn reconcile_system_proxy(settings: &Settings) -> Result<(), String> {
+    let port = settings.listen_port;
+    let wanted = settings.system_proxy;
+    tauri::async_runtime::spawn_blocking(move || {
+        // `is_active` is port-specific, so a changed port reads as "not active"
+        // and gets re-pointed. `is_enabled` is port-agnostic, so turning the
+        // feature off clears whatever is set without prompting when nothing is.
+        match (wanted, sysproxy::is_active(port), sysproxy::is_enabled()) {
+            (true, false, _) => sysproxy::enable(port),
+            (false, _, true) => sysproxy::disable(),
+            _ => Ok(()),
+        }
+    })
+    .await
+    .map_err(|err| format!("не удалось применить системный прокси: {err}"))?
 }
 
 #[tauri::command]
