@@ -231,6 +231,13 @@ pub fn run() {
         ])
         .setup(|app| {
             build_tray(app.handle())?;
+            // A tray app can end up launched without its window surfacing (the
+            // process starts in the background and the window never activates).
+            // Showing it explicitly makes the first launch deterministic.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

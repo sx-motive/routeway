@@ -1,4 +1,4 @@
-import { FolderOpen, Minus, MoonStar, Sun } from "lucide-react";
+import { FolderOpen, Minus, MoonStar, Sun, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Button } from "./ui/button";
 import { useTheme } from "../theme/ThemeProvider";
@@ -39,11 +39,21 @@ export function TitleBar() {
         variant="ghost"
         size="icon"
         className="h-7 w-7 text-fg-muted/50"
-        aria-label="Свернуть в трей"
-        title="Свернуть в трей — маршрутизация продолжит работать"
-        onClick={() => void getCurrentWindow().hide()}
+        aria-label="Свернуть"
+        title="Свернуть"
+        onClick={() => void getCurrentWindow().minimize()}
       >
         <Minus className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 text-fg-muted/50"
+        aria-label="Закрыть в трей"
+        title="Закрыть в трей — маршрутизация продолжит работать"
+        onClick={() => void getCurrentWindow().hide()}
+      >
+        <X className="h-3.5 w-3.5" />
       </Button>
     </div>
   );

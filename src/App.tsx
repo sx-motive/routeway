@@ -116,7 +116,9 @@ export function App() {
     <div className="flex h-full flex-col">
       <TitleBar />
 
-      <div className="thin-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
+      {/* A block container, not a flex column: flex children shrink below their
+          content height in a scroll container and spill over each other. */}
+      <div className="thin-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-4">
         {update ? (
           <div className="flex items-center justify-between border border-accent/40 bg-accent/5 px-3 py-2">
             <span className="text-xs text-fg">
