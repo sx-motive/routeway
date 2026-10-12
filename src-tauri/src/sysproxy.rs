@@ -99,22 +99,29 @@ mod imp {
         run_as_admin(&command)
     }
 
-    pub fn is_active(port: u16) -> bool {
-        let Ok(service) = primary_service() else {
-            return false;
-        };
-        let Ok(out) = Command::new("/usr/sbin/networksetup")
+    fn read_https_proxy() -> Option<String> {
+        let service = primary_service().ok()?;
+        let out = Command::new("/usr/sbin/networksetup")
             .args(["-getsecurewebproxy", &service])
             .output()
-        else {
+            .ok()?;
+        Some(String::from_utf8_lossy(&out.stdout).to_string())
+    }
+
+    pub fn is_active(port: u16) -> bool {
+        let Some(text) = read_https_proxy() else {
             return false;
         };
-        let text = String::from_utf8_lossy(&out.stdout);
         let enabled = text.lines().any(|l| l.trim() == "Enabled: Yes");
-        let right_port = text
-            .lines()
-            .any(|l| l.trim() == format!("Port: {port}").as_str());
+        let right_port = text.lines().any(|l| l.trim() == format!("Port: {port}"));
         enabled && right_port
+    }
+
+    /// Whether any system proxy is set, regardless of which port it points at.
+    pub fn is_enabled() -> bool {
+        read_https_proxy()
+            .map(|text| text.lines().any(|l| l.trim() == "Enabled: Yes"))
+            .unwrap_or(false)
     }
 }
 
@@ -172,6 +179,14 @@ mod imp {
         let server: String = key.get_value("ProxyServer").unwrap_or_default();
         enabled == 1 && server == format!("127.0.0.1:{port}")
     }
+
+    /// Whether any system proxy is set, regardless of which port it points at.
+    pub fn is_enabled() -> bool {
+        let Ok(key) = open(KEY_READ) else {
+            return false;
+        };
+        key.get_value::<u32, _>("ProxyEnable").unwrap_or(0) == 1
+    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -185,6 +200,9 @@ mod imp {
     pub fn is_active(_port: u16) -> bool {
         false
     }
+    pub fn is_enabled() -> bool {
+        false
+    }
 }
 
-pub use imp::{disable, enable, is_active};
+pub use imp::{disable, enable, is_active, is_enabled};

@@ -143,11 +143,35 @@ mod tests {
     }
 
     #[test]
-    fn empty_domain_list_still_produces_a_valid_all_direct_config() {
+    fn empty_domain_list_sends_no_user_traffic_through_the_server() {
         let cfg = build_config(&settings_with(&[])).unwrap();
         let rules = cfg["route"]["rules"].as_array().unwrap();
-        assert!(rules.iter().all(|r| r["outbound"] != "proxy"));
+
+        // The probe inbound is allowed to reach the server — it exists precisely
+        // to test the server. Nothing arriving on the main inbound may.
+        let user_rules_to_proxy: Vec<_> = rules
+            .iter()
+            .filter(|r| r["outbound"] == "proxy" && r["inbound"] != "probe")
+            .collect();
+        assert!(user_rules_to_proxy.is_empty(), "{user_rules_to_proxy:?}");
+
+        assert_eq!(cfg["route"]["final"], "direct");
         assert!(cfg["dns"]["rules"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn probe_inbound_always_reaches_the_server() {
+        let cfg = build_config(&settings_with(&["youtube.com"])).unwrap();
+        let inbounds = cfg["inbounds"].as_array().unwrap();
+        assert_eq!(inbounds[1]["tag"], "probe");
+        assert_eq!(
+            inbounds[1]["listen_port"].as_u64().unwrap(),
+            inbounds[0]["listen_port"].as_u64().unwrap() + 1
+        );
+        let rules = cfg["route"]["rules"].as_array().unwrap();
+        assert!(rules
+            .iter()
+            .any(|r| r["inbound"] == "probe" && r["outbound"] == "proxy"));
     }
 
     #[test]
