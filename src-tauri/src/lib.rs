@@ -2,6 +2,9 @@ mod core;
 mod settings;
 mod singbox;
 mod sysproxy;
+mod tunhost;
+
+pub use tunhost::{run_host as run_tun_host, HOST_FLAG as TUN_HOST_FLAG};
 
 use std::time::Duration;
 
@@ -20,6 +23,7 @@ pub struct Status {
     settings: Settings,
     running: bool,
     system_proxy_active: bool,
+    tun_active: bool,
     log: Vec<String>,
 }
 
@@ -32,6 +36,7 @@ async fn status_of(app: &AppHandle, settings: Settings) -> Status {
         settings,
         running: app.state::<CoreState>().is_running(),
         system_proxy_active: active,
+        tun_active: app.state::<CoreState>().is_tun(),
         log: app.state::<CoreState>().log_lines(),
     }
 }
@@ -55,8 +60,13 @@ async fn save_settings(app: AppHandle, settings: Settings) -> Result<Status, Str
         autostart.disable()
     };
 
-    if app.state::<CoreState>().is_running() {
-        core::start(&app, &settings).await?;
+    let state = app.state::<CoreState>();
+    if state.is_running() {
+        if state.is_tun() && settings.tun {
+            core::reload_tun(&app, &settings).await?;
+        } else {
+            core::start(&app, &settings).await?;
+        }
         // The port may have moved or the user may have turned the system proxy
         // off; without this the OS would keep pointing at a stale port.
         reconcile_system_proxy(&app, &settings).await?;
@@ -68,7 +78,7 @@ async fn save_settings(app: AppHandle, settings: Settings) -> Result<Status, Str
 async fn reconcile_system_proxy(app: &AppHandle, settings: &Settings) -> Result<(), String> {
     let port = settings.listen_port;
 
-    if settings.system_proxy {
+    if settings.system_proxy && !settings.tun {
         // `is_active` is port-specific, so a changed port reads as "not active"
         // and gets re-pointed at the new one.
         let active = tauri::async_runtime::spawn_blocking(move || sysproxy::is_active(port))
@@ -123,7 +133,9 @@ async fn connect(app: AppHandle) -> Result<Status, String> {
     let settings = settings::load(&app);
     core::start(&app, &settings).await?;
 
-    if settings.system_proxy {
+    if settings.tun {
+        release_system_proxy(&app, settings.listen_port).await;
+    } else if settings.system_proxy {
         let port = settings.listen_port;
         snapshot_system_proxy(&app, port).await;
         let result = tauri::async_runtime::spawn_blocking(move || sysproxy::enable(port))
@@ -132,7 +144,7 @@ async fn connect(app: AppHandle) -> Result<Status, String> {
         if let Err(err) = result {
             // Routing without a system proxy is useless; roll the core back so the
             // UI never claims to be connected when nothing is routed.
-            core::stop(&app);
+            core::halt(&app).await;
             return Err(err);
         }
     }
@@ -192,7 +204,7 @@ async fn reveal_config(app: AppHandle) -> Result<(), String> {
 
 /// Stops the core and hands the network back to the system. Always safe to call.
 async fn teardown(app: &AppHandle, settings: &Settings) {
-    core::stop(app);
+    core::halt(app).await;
     release_system_proxy(app, settings.listen_port).await;
 }
 

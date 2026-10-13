@@ -7,6 +7,7 @@ export interface Settings {
   processes: string[];
   listen_port: number;
   system_proxy: boolean;
+  tun: boolean;
   autostart: boolean;
 }
 
@@ -14,6 +15,7 @@ export interface Status {
   settings: Settings;
   running: boolean;
   system_proxy_active: boolean;
+  tun_active: boolean;
   log: string[];
 }
 
