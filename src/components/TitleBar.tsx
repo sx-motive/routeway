@@ -27,7 +27,7 @@ export function TitleBar({ tab, onTabChange }: { tab: Tab; onTabChange: (tab: Ta
             type="button"
             onClick={() => onTabChange(id)}
             className={[
-              "border-b px-2.5 text-xs transition-colors",
+              "border-b px-2.5 text-xs transition-colors outline-none focus-visible:bg-bg-elevated",
               tab === id
                 ? "border-accent text-fg"
                 : "border-transparent text-fg-muted/70 hover:text-fg",

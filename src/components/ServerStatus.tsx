@@ -4,7 +4,7 @@ import { Card } from "./ui/card";
 import { LatencyBars } from "./LatencyBars";
 import { useI18n } from "../i18n";
 import type { Server } from "../lib/vless";
-import { PROBE_WINDOW, summarize, useServerHealth, type Sample } from "../lib/useServerHealth";
+import { PROBE_WINDOW, summarize, type Health, type Sample } from "../lib/useServerHealth";
 
 const SLOW_MS = { tcp: 300, tunnel: 1200 } as const;
 
@@ -19,16 +19,15 @@ const DOT: Record<State, string> = {
 
 export function ServerStatus({
   server,
-  running,
+  health,
   onEdit,
 }: {
   server: Server | null;
-  running: boolean;
+  health: Health;
   onEdit: () => void;
 }) {
   const { t } = useI18n();
-  const resetKey = `${running}|${server?.address}:${server?.port}`;
-  const { mode, samples } = useServerHealth(server !== null, resetKey);
+  const { mode, samples } = health;
   const { last, avg, lossPct } = summarize(samples);
 
   const state: State = !last

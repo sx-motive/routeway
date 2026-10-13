@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
+use crate::corelog::{LogEvent, LogParser};
 use crate::settings::Settings;
 use crate::singbox;
 use crate::tunhost::{self, HostPaths};
@@ -34,7 +35,8 @@ impl Running {
 #[derive(Default)]
 pub struct CoreState {
     running: Mutex<Option<Running>>,
-    log: Mutex<Vec<String>>,
+    log: Mutex<Vec<LogEvent>>,
+    parser: Mutex<LogParser>,
 }
 
 impl CoreState {
@@ -49,8 +51,16 @@ impl CoreState {
             .unwrap_or(false)
     }
 
-    pub fn log_lines(&self) -> Vec<String> {
+    pub fn log_events(&self) -> Vec<LogEvent> {
         self.log.lock().map(|l| l.clone()).unwrap_or_default()
+    }
+
+    fn log_text(&self) -> String {
+        self.log_events()
+            .iter()
+            .map(|e| e.raw.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     fn install(&self, running: Running) {
@@ -87,15 +97,31 @@ impl CoreState {
         if let Ok(mut log) = self.log.lock() {
             log.clear();
         }
+        if let Ok(mut parser) = self.parser.lock() {
+            *parser = LogParser::default();
+        }
     }
 
-    fn push_log(&self, line: String) {
+    fn record(&self, app: &AppHandle, line: &str) {
+        let event = self.parser.lock().ok().and_then(|mut p| p.ingest(line));
+        if let Some(event) = event {
+            self.push_event(app, event);
+        }
+    }
+
+    fn record_exit(&self, app: &AppHandle, reason: String) {
+        self.push_event(app, LogEvent::stopped(reason.clone()));
+        let _ = app.emit("core-exit", reason);
+    }
+
+    fn push_event(&self, app: &AppHandle, event: LogEvent) {
         if let Ok(mut log) = self.log.lock() {
             if log.len() >= LOG_CAPACITY {
                 log.remove(0);
             }
-            log.push(line);
+            log.push(event.clone());
         }
+        let _ = app.emit("core-log", event);
     }
 }
 
@@ -222,7 +248,7 @@ async fn await_ready(app: &AppHandle, port: u16, timeout: Duration) -> Result<()
     if ready {
         return Ok(());
     }
-    let log = app.state::<CoreState>().log_lines().join("\n");
+    let log = app.state::<CoreState>().log_text();
     halt(app).await;
     let detail = if log.trim().is_empty() {
         t!("err.port_not_opened", port = port)
@@ -285,20 +311,16 @@ async fn start_sidecar(app: &AppHandle, settings: &Settings) -> Result<(), Strin
             let state = handle.state::<CoreState>();
             match event {
                 CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
-                    let line = String::from_utf8_lossy(&bytes).trim_end().to_string();
-                    if line.is_empty() {
-                        continue;
+                    for line in String::from_utf8_lossy(&bytes).lines() {
+                        state.record(&handle, line);
                     }
-                    state.push_log(line.clone());
-                    let _ = handle.emit("core-log", line);
                 }
                 CommandEvent::Terminated(payload) => {
                     if state.release(pid) {
                         forget_pid(&handle);
                     }
-                    let reason = t!("core.exited_code", code = format!("{:?}", payload.code));
-                    state.push_log(reason.clone());
-                    let _ = handle.emit("core-exit", reason);
+                    let code = payload.code.map(|c| c.to_string()).unwrap_or_else(|| "?".into());
+                    state.record_exit(&handle, t!("core.exited_code", code = code));
                     break;
                 }
                 _ => {}
@@ -341,8 +363,7 @@ fn follow_tun_host(app: AppHandle, host_pid: u32, log: PathBuf) {
     let publish = |lines: Vec<String>| {
         let state = app.state::<CoreState>();
         for line in lines {
-            state.push_log(line.clone());
-            let _ = app.emit("core-log", line);
+            state.record(&app, &line);
         }
     };
     loop {
@@ -356,9 +377,7 @@ fn follow_tun_host(app: AppHandle, host_pid: u32, log: PathBuf) {
         if !tunhost::is_alive(host_pid) {
             publish(read_new_lines(&log, &mut offset, &mut partial));
             state.release(host_pid);
-            let reason = t!("core.exited");
-            state.push_log(reason.clone());
-            let _ = app.emit("core-exit", reason);
+            state.record_exit(&app, t!("core.exited"));
             return;
         }
     }

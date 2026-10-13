@@ -1,76 +1,28 @@
 import { useEffect, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { probeServer, type Probe } from "./ipc";
+import { listen } from "@tauri-apps/api/event";
+import { getHealth, type Health } from "./ipc";
 
-export const PROBE_INTERVAL_MS = 5000;
+export type { Health, Sample } from "./ipc";
+
 export const PROBE_WINDOW = 30;
 
-export interface Sample {
-  ms: number | null;
-  error: string | null;
-  at: number;
-}
-
-export interface Health {
-  mode: Probe["mode"] | null;
-  samples: Sample[];
-}
-
-async function windowIsShown(): Promise<boolean> {
-  try {
-    const win = getCurrentWindow();
-    const [visible, minimized] = await Promise.all([win.isVisible(), win.isMinimized()]);
-    return visible && !minimized;
-  } catch {
-    return true;
-  }
-}
-
-export function useServerHealth(enabled: boolean, resetKey: string): Health {
+export function useServerHealth(): Health {
   const [health, setHealth] = useState<Health>({ mode: null, samples: [] });
 
   useEffect(() => {
-    setHealth({ mode: null, samples: [] });
-    if (!enabled) return;
-
-    let cancelled = false;
-    let inFlight = false;
-
-    const tick = async () => {
-      if (inFlight || !(await windowIsShown())) return;
-      inFlight = true;
-      try {
-        const probe = await probeServer();
-        if (cancelled || !probe) return;
-        setHealth((prev) => ({
-          mode: probe.mode,
-          samples: [
-            ...prev.samples.slice(-(PROBE_WINDOW - 1)),
-            { ms: probe.ms, error: probe.error, at: Date.now() },
-          ],
-        }));
-      } catch {
-        // a failed IPC call is not a server failure; the next tick retries
-      } finally {
-        inFlight = false;
-      }
-    };
-
-    void tick();
-    const timer = window.setInterval(() => void tick(), PROBE_INTERVAL_MS);
-    const onFocus = () => void tick();
-    window.addEventListener("focus", onFocus);
+    let alive = true;
+    void getHealth().then((current) => alive && setHealth(current));
+    const unlisten = listen<Health>("health", (event) => setHealth(event.payload));
     return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      window.removeEventListener("focus", onFocus);
+      alive = false;
+      void unlisten.then((fn) => fn());
     };
-  }, [enabled, resetKey]);
+  }, []);
 
   return health;
 }
 
-export function summarize(samples: Sample[]) {
+export function summarize(samples: Health["samples"]) {
   const answered = samples.filter((s) => s.ms !== null).map((s) => s.ms as number);
   const lossPct = samples.length
     ? Math.round(((samples.length - answered.length) / samples.length) * 100)

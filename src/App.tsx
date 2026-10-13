@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   ArrowDownToLine,
   Loader2,
   RefreshCw,
   ShieldCheck,
-  Terminal,
 } from "lucide-react";
 import { TitleBar, type Tab } from "./components/TitleBar";
 import { ServerCard } from "./components/ServerCard";
@@ -13,6 +12,9 @@ import { DomainList } from "./components/DomainList";
 import { ProcessList } from "./components/ProcessList";
 import { RulesDialog } from "./components/RulesDialog";
 import { ServerStatus } from "./components/ServerStatus";
+import { useServerHealth } from "./lib/useServerHealth";
+import { CoreLog } from "./components/CoreLog";
+import { stampLocalTime, type LogEvent } from "./lib/coreLog";
 import { Button } from "./components/ui/button";
 import { Switch } from "./components/ui/switch";
 import { Card, Row, Rows } from "./components/ui/card";
@@ -38,19 +40,19 @@ export function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState<Busy>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [log, setLog] = useState<string[]>([]);
+  const [log, setLog] = useState<LogEvent[]>([]);
   const [tab, setTab] = useState<Tab>("home");
+  const health = useServerHealth();
   const [update, setUpdate] = useState<UpdateAvailable | null>(null);
   const [installing, setInstalling] = useState(false);
   const [ips, setIps] = useState<{ direct?: string; server?: string }>({});
   const [probing, setProbing] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
-  const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void getStatus().then((s) => {
       setStatus(s);
-      setLog(s.log);
+      setLog(s.log.map(stampLocalTime));
       setLang(toLang(s.settings.language));
     });
     void checkForUpdate().then(setUpdate);
@@ -58,22 +60,15 @@ export function App() {
 
   useEffect(() => {
     const unlisten = Promise.all([
-      listen<string>("core-log", (event) => setLog((prev) => [...prev.slice(-299), event.payload])),
-      listen<string>("core-exit", (event) => {
-        setLog((prev) => [...prev.slice(-299), event.payload]);
-        void getStatus().then(setStatus);
-      }),
+      listen<LogEvent>("core-log", (event) =>
+        setLog((prev) => [...prev.slice(-299), stampLocalTime(event.payload)]),
+      ),
+      listen<string>("core-exit", () => void getStatus().then(setStatus)),
     ]);
     return () => {
       void unlisten.then((fns) => fns.forEach((fn) => fn()));
     };
   }, []);
-
-  useEffect(() => {
-    if (tab === "home" && logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight;
-    }
-  }, [log, tab]);
 
   const persist = useCallback(async (next: Settings) => {
     setStatus((prev) => (prev ? { ...prev, settings: next } : prev));
@@ -254,31 +249,11 @@ export function App() {
 
           <ServerStatus
             server={settings.server}
-            running={running}
+            health={health}
             onEdit={() => setTab("settings")}
           />
 
-          <Card
-            className="flex min-h-40 flex-1 flex-col"
-            title={
-              <span className="inline-flex items-center gap-2">
-                <Terminal className="h-3.5 w-3.5" />
-                {t("log.title")}
-              </span>
-            }
-          >
-            <div ref={logRef} className="thin-scroll min-h-0 flex-1 overflow-y-auto bg-bg px-4 py-2">
-              {log.length === 0 ? (
-                <p className="text-xs text-fg-muted/50">{t("log.empty")}</p>
-              ) : (
-                log.map((line, index) => (
-                  <p key={index} className="font-mono text-[11px] leading-relaxed text-fg-muted">
-                    {line}
-                  </p>
-                ))
-              )}
-            </div>
-          </Card>
+          <CoreLog events={log} onClear={() => setLog([])} />
         </div>
       ) : (
         // A block container, not a flex column: flex children shrink below their
