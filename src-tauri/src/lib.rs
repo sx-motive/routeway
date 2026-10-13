@@ -59,27 +59,63 @@ async fn save_settings(app: AppHandle, settings: Settings) -> Result<Status, Str
         core::start(&app, &settings).await?;
         // The port may have moved or the user may have turned the system proxy
         // off; without this the OS would keep pointing at a stale port.
-        reconcile_system_proxy(&settings).await?;
+        reconcile_system_proxy(&app, &settings).await?;
     }
     Ok(status_of(&app, settings).await)
 }
 
 /// Brings the system proxy in line with the settings while the core is running.
-async fn reconcile_system_proxy(settings: &Settings) -> Result<(), String> {
+async fn reconcile_system_proxy(app: &AppHandle, settings: &Settings) -> Result<(), String> {
     let port = settings.listen_port;
-    let wanted = settings.system_proxy;
-    tauri::async_runtime::spawn_blocking(move || {
+
+    if settings.system_proxy {
         // `is_active` is port-specific, so a changed port reads as "not active"
-        // and gets re-pointed. `is_enabled` is port-agnostic, so turning the
-        // feature off clears whatever is set without prompting when nothing is.
-        match (wanted, sysproxy::is_active(port), sysproxy::is_enabled()) {
-            (true, false, _) => sysproxy::enable(port),
-            (false, _, true) => sysproxy::disable(),
-            _ => Ok(()),
+        // and gets re-pointed at the new one.
+        let active = tauri::async_runtime::spawn_blocking(move || sysproxy::is_active(port))
+            .await
+            .unwrap_or(false);
+        if !active {
+            snapshot_system_proxy(app, port).await;
+            return tauri::async_runtime::spawn_blocking(move || sysproxy::enable(port))
+                .await
+                .map_err(|err| format!("не удалось применить системный прокси: {err}"))?;
         }
+        return Ok(());
+    }
+
+    release_system_proxy(app, port).await;
+    Ok(())
+}
+
+/// Remembers the system proxy configuration that existed before Routeway took
+/// over, so turning routing off can put it back instead of clearing it.
+async fn snapshot_system_proxy(app: &AppHandle, port: u16) {
+    // Never snapshot our own settings: that would make the backup a no-op and
+    // lose whatever the user actually had configured.
+    if settings::has_proxy_backup(app) {
+        return;
+    }
+    let already_ours = tauri::async_runtime::spawn_blocking(move || sysproxy::is_active(port))
+        .await
+        .unwrap_or(false);
+    if already_ours {
+        return;
+    }
+    if let Ok(Some(raw)) = tauri::async_runtime::spawn_blocking(sysproxy::capture).await {
+        let _ = settings::save_proxy_backup(app, &raw);
+    }
+}
+
+/// Hands the system proxy back: restores the pre-Routeway configuration when we
+/// have one, otherwise just clears what we set.
+async fn release_system_proxy(app: &AppHandle, port: u16) {
+    let backup = settings::take_proxy_backup(app);
+    let _ = tauri::async_runtime::spawn_blocking(move || match backup {
+        Some(raw) => sysproxy::restore(&raw),
+        None if sysproxy::is_active(port) => sysproxy::disable(),
+        None => Ok(()),
     })
-    .await
-    .map_err(|err| format!("не удалось применить системный прокси: {err}"))?
+    .await;
 }
 
 #[tauri::command]
@@ -89,6 +125,7 @@ async fn connect(app: AppHandle) -> Result<Status, String> {
 
     if settings.system_proxy {
         let port = settings.listen_port;
+        snapshot_system_proxy(&app, port).await;
         let result = tauri::async_runtime::spawn_blocking(move || sysproxy::enable(port))
             .await
             .map_err(|err| format!("не удалось применить системный прокси: {err}"))?;
@@ -156,13 +193,7 @@ async fn reveal_config(app: AppHandle) -> Result<(), String> {
 /// Stops the core and hands the network back to the system. Always safe to call.
 async fn teardown(app: &AppHandle, settings: &Settings) {
     core::stop(app);
-    let port = settings.listen_port;
-    let _ = tauri::async_runtime::spawn_blocking(move || {
-        if sysproxy::is_active(port) {
-            let _ = sysproxy::disable();
-        }
-    })
-    .await;
+    release_system_proxy(app, settings.listen_port).await;
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
