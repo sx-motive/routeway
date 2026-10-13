@@ -10,6 +10,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub const HOST_FLAG: &str = "--tun-host";
@@ -46,17 +47,47 @@ fn core_binary() -> Result<PathBuf, String> {
     Ok(dir.join(if cfg!(windows) { "sing-box.exe" } else { "sing-box" }))
 }
 
+const LOG_LIMIT_BYTES: u64 = 4 * 1024 * 1024;
+
+struct BoundedLog {
+    file: File,
+}
+
+impl BoundedLog {
+    fn write_line(&mut self, line: &[u8]) {
+        use std::io::Write;
+        let size = self.file.metadata().map(|m| m.len()).unwrap_or(0);
+        if size + line.len() as u64 > LOG_LIMIT_BYTES {
+            let _ = self.file.set_len(0);
+        }
+        let _ = self.file.write_all(line);
+    }
+}
+
+fn pump(source: impl std::io::Read + Send + 'static, sink: Arc<Mutex<BoundedLog>>) {
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        let mut reader = std::io::BufReader::new(source);
+        let mut line = Vec::new();
+        while reader.read_until(b'\n', &mut line).map(|n| n > 0).unwrap_or(false) {
+            if let Ok(mut log) = sink.lock() {
+                log.write_line(&line);
+            }
+            line.clear();
+        }
+    });
+}
+
 fn spawn_core(core: &Path, paths: &HostPaths, truncate_log: bool) -> Result<Child, String> {
-    let log = OpenOptions::new()
+    let file = OpenOptions::new()
         .create(true)
-        .write(true)
-        .append(!truncate_log)
-        .truncate(truncate_log)
+        .append(true)
         .open(&paths.log)
         .map_err(|err| t!("err.write_file", path = paths.log.display(), err = err))?;
-    let log_err = log
-        .try_clone()
-        .map_err(|err| t!("err.write_file", path = paths.log.display(), err = err))?;
+    if truncate_log {
+        let _ = file.set_len(0);
+    }
+    let sink = Arc::new(Mutex::new(BoundedLog { file }));
 
     let mut command = Command::new(core);
     command
@@ -65,8 +96,8 @@ fn spawn_core(core: &Path, paths: &HostPaths, truncate_log: bool) -> Result<Chil
         .arg("-c")
         .arg(&paths.config)
         .stdin(Stdio::null())
-        .stdout(Stdio::from(log))
-        .stderr(Stdio::from(log_err));
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     #[cfg(windows)]
     {
@@ -75,9 +106,16 @@ fn spawn_core(core: &Path, paths: &HostPaths, truncate_log: bool) -> Result<Chil
         command.creation_flags(CREATE_NO_WINDOW);
     }
 
-    command
+    let mut child = command
         .spawn()
-        .map_err(|err| t!("err.core_spawn", err = err))
+        .map_err(|err| t!("err.core_spawn", err = err))?;
+    if let Some(stdout) = child.stdout.take() {
+        pump(stdout, sink.clone());
+    }
+    if let Some(stderr) = child.stderr.take() {
+        pump(stderr, sink);
+    }
+    Ok(child)
 }
 
 fn append_log(path: &Path, line: &str) {

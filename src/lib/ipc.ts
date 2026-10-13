@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Server } from "./vless";
+import type { LogEvent } from "./coreLog";
 
 export interface Settings {
   server: Server | null;
@@ -17,7 +18,7 @@ export interface Status {
   running: boolean;
   system_proxy_active: boolean;
   tun_active: boolean;
-  log: string[];
+  log: LogEvent[];
 }
 
 export const getStatus = () => invoke<Status>("get_status");
@@ -41,12 +42,17 @@ export const disconnect = () => invoke<Status>("disconnect");
 export const checkIp = (throughServer: boolean) =>
   invoke<string>("check_ip", { throughServer });
 
-export interface Probe {
-  mode: "tcp" | "tunnel";
+export interface Sample {
   ms: number | null;
   error: string | null;
+  at: number;
 }
 
-export const probeServer = () => invoke<Probe | null>("probe_server");
+export interface Health {
+  mode: "tcp" | "tunnel" | null;
+  samples: Sample[];
+}
+
+export const getHealth = () => invoke<Health>("get_health");
 
 export const revealConfig = () => invoke<void>("reveal_config");

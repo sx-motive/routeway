@@ -1,6 +1,7 @@
 #[macro_use]
 mod i18n;
 mod core;
+mod corelog;
 mod health;
 mod settings;
 mod singbox;
@@ -27,7 +28,7 @@ pub struct Status {
     running: bool,
     system_proxy_active: bool,
     tun_active: bool,
-    log: Vec<String>,
+    log: Vec<corelog::LogEvent>,
 }
 
 async fn status_of(app: &AppHandle, settings: Settings) -> Status {
@@ -40,7 +41,7 @@ async fn status_of(app: &AppHandle, settings: Settings) -> Status {
         running: app.state::<CoreState>().is_running(),
         system_proxy_active: active,
         tun_active: app.state::<CoreState>().is_tun(),
-        log: app.state::<CoreState>().log_lines(),
+        log: app.state::<CoreState>().log_events(),
     }
 }
 
@@ -205,10 +206,8 @@ async fn disconnect(app: AppHandle) -> Result<Status, String> {
 }
 
 #[tauri::command]
-async fn probe_server(app: AppHandle) -> Option<health::Probe> {
-    let settings = settings::load(&app);
-    let through_tunnel = app.state::<CoreState>().is_running();
-    health::probe(&settings, through_tunnel).await
+fn get_health(app: AppHandle) -> health::Health {
+    app.state::<health::HealthState>().snapshot()
 }
 
 #[tauri::command]
@@ -332,6 +331,7 @@ pub fn run() {
             None,
         ))
         .manage(CoreState::default())
+        .manage(health::HealthState::default())
         .invoke_handler(tauri::generate_handler![
             get_status,
             save_settings,
@@ -342,7 +342,7 @@ pub fn run() {
             connect,
             disconnect,
             check_ip,
-            probe_server,
+            get_health,
             reveal_config
         ])
         .setup(|app| {
@@ -350,6 +350,11 @@ pub fn run() {
             // holding the port; clear it before anything else needs that port.
             i18n::set(&settings::load(app.handle()).language);
             core::reap_orphan(app.handle());
+            // A run that was killed in proxy mode leaves the OS pointing at a port
+            // nobody listens on, which cuts off every app that honours the proxy.
+            let port = settings::load(app.handle()).listen_port;
+            tauri::async_runtime::block_on(release_system_proxy(app.handle(), port));
+            health::spawn_monitor(app.handle().clone());
             build_tray(app.handle())?;
             // A tray app can end up launched without its window surfacing (the
             // process starts in the background and the window never activates).

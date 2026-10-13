@@ -69,7 +69,6 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
     // Process rules come before domain rules: "this app always goes through the
     // server" is a stronger statement than "this domain does".
     let (process_names, process_paths) = settings.process_rules();
-    let has_process_rules = !process_names.is_empty() || !process_paths.is_empty();
     if !process_names.is_empty() {
         route_rules.push(json!({ "process_name": process_names, "outbound": "proxy" }));
     }
@@ -105,22 +104,28 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
             "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
             "mtu": 9000,
             "auto_route": true,
-            // Without it Windows also asks the ISP resolver over the physical
-            // interface, and a poisoned answer for a listed domain wins the race.
-            "strict_route": true,
+            // strict_route would also firewall off DNS servers reached through
+            // other adapters, which breaks name resolution inside corporate VPNs.
+            "strict_route": false,
             "stack": "mixed"
         }));
     }
 
+    // In TUN mode apps resolve through us and pick whatever family we answer
+    // with. Servers without IPv6 egress would silently fail AAAA-first clients.
+    let dns_strategy = if settings.tun { "ipv4_only" } else { "prefer_ipv4" };
+
     Ok(json!({
-        "log": { "level": "warn", "timestamp": true },
+        // Info is what carries the per-connection process and destination that
+        // the log view needs to explain a failure; the app filters it down.
+        "log": { "level": "info", "timestamp": true },
         "dns": {
             "servers": [
                 { "type": "https", "tag": "dns-proxy", "server": "1.1.1.1", "detour": "proxy" },
                 { "type": "udp", "tag": "dns-direct", "server": "1.1.1.1" }
             ],
             "rules": dns_rules,
-            "strategy": "prefer_ipv4"
+            "strategy": dns_strategy
         },
         "inbounds": inbounds,
         "outbounds": [
@@ -131,9 +136,7 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
             "rules": route_rules,
             "final": "direct",
             "default_domain_resolver": "dns-direct",
-            // Looking up the owning process costs a syscall per connection, so
-            // only ask for it when a rule actually depends on it.
-            "find_process": has_process_rules,
+            "find_process": true,
             // Direct and server-bound sockets must bind the physical interface,
             // otherwise auto_route sends them straight back into the tunnel.
             "auto_detect_interface": settings.tun
@@ -234,9 +237,10 @@ mod tests {
     }
 
     #[test]
-    fn process_lookup_stays_off_when_no_process_rules_exist() {
+    fn process_lookup_is_on_so_the_log_can_name_apps() {
         let cfg = build_config(&settings_with(&["youtube.com"])).unwrap();
-        assert_eq!(cfg["route"]["find_process"], false);
+        assert_eq!(cfg["route"]["find_process"], true);
+        assert_eq!(cfg["log"]["level"], "info");
         let rules = cfg["route"]["rules"].as_array().unwrap();
         assert!(rules.iter().all(|r| r["process_name"].is_null()));
     }
@@ -246,6 +250,7 @@ mod tests {
         let cfg = build_config(&settings_with(&["youtube.com"])).unwrap();
         let inbounds = cfg["inbounds"].as_array().unwrap();
         assert!(inbounds.iter().all(|i| i["type"] != "tun"));
+        assert_eq!(cfg["dns"]["strategy"], "prefer_ipv4");
         assert_eq!(cfg["route"]["auto_detect_interface"], false);
     }
 
@@ -258,6 +263,8 @@ mod tests {
         let inbounds = cfg["inbounds"].as_array().unwrap();
         let tun = inbounds.iter().find(|i| i["type"] == "tun").unwrap();
         assert_eq!(tun["auto_route"], true);
+        assert_eq!(tun["strict_route"], false);
+        assert_eq!(cfg["dns"]["strategy"], "ipv4_only");
         assert_eq!(cfg["route"]["auto_detect_interface"], true);
 
         assert!(inbounds.iter().any(|i| i["tag"] == "in"));
