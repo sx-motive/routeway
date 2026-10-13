@@ -4,6 +4,7 @@ import { ArrowDownToLine, Loader2, RefreshCw, ShieldCheck, Terminal } from "luci
 import { TitleBar } from "./components/TitleBar";
 import { ServerCard } from "./components/ServerCard";
 import { DomainList } from "./components/DomainList";
+import { ProcessList } from "./components/ProcessList";
 import { Button } from "./components/ui/button";
 import { Switch } from "./components/ui/switch";
 import {
@@ -17,6 +18,7 @@ import {
 } from "./lib/ipc";
 import type { Server } from "./lib/vless";
 import { checkForUpdate, type UpdateAvailable } from "./lib/updateCheck";
+import { countOf } from "./lib/plural";
 
 type Busy = "idle" | "connecting" | "disconnecting";
 
@@ -110,7 +112,19 @@ export function App() {
 
   const { settings, running, system_proxy_active } = status;
   const working = busy !== "idle";
-  const domainCount = settings.domains.length;
+
+  const routed = [
+    settings.processes.length > 0
+      ? countOf(settings.processes.length, ["приложение", "приложения", "приложений"])
+      : null,
+    settings.domains.length > 0
+      ? countOf(settings.domains.length, ["домен", "домена", "доменов"])
+      : null,
+  ].filter(Boolean);
+  const routedSummary =
+    routed.length === 0
+      ? "ничего не направлено через сервер — весь трафик идёт напрямую"
+      : `${routed.join(" и ")} через ${settings.server?.label ?? "сервер"} · остальное напрямую`;
 
   return (
     <div className="flex h-full flex-col">
@@ -169,9 +183,7 @@ export function App() {
                     : "Выключено"}
               </p>
               <p className="truncate text-xs text-fg-muted">
-                {running
-                  ? `${domainCount === 0 ? "ни один домен не" : `${domainCount} домен(ов)`} через ${settings.server?.label ?? "сервер"} · остальное напрямую`
-                  : "весь трафик идёт напрямую"}
+                {running ? routedSummary : "весь трафик идёт напрямую"}
               </p>
             </div>
             <Switch
@@ -222,6 +234,11 @@ export function App() {
         <ServerCard
           server={settings.server}
           onChange={(server: Server) => void persist({ ...settings, server })}
+        />
+
+        <ProcessList
+          processes={settings.processes}
+          onChange={(processes) => void persist({ ...settings, processes })}
         />
 
         <DomainList
