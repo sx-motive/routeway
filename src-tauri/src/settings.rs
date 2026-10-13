@@ -52,6 +52,8 @@ pub struct Settings {
     #[serde(default)]
     pub system_proxy: bool,
     #[serde(default)]
+    pub tun: bool,
+    #[serde(default)]
     pub autostart: bool,
 }
 
@@ -63,6 +65,7 @@ impl Default for Settings {
             processes: Vec::new(),
             listen_port: default_listen_port(),
             system_proxy: true,
+            tun: false,
             autostart: false,
         }
     }

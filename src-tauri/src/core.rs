@@ -1,8 +1,9 @@
 //! Supervisor for the bundled sing-box sidecar.
 
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -12,32 +13,74 @@ use tauri_plugin_shell::ShellExt;
 
 use crate::settings::Settings;
 use crate::singbox;
+use crate::tunhost::{self, HostPaths};
 
 const LOG_CAPACITY: usize = 300;
 
+enum Running {
+    Sidecar(CommandChild),
+    Tun { host_pid: u32 },
+}
+
+impl Running {
+    fn pid(&self) -> u32 {
+        match self {
+            Running::Sidecar(child) => child.pid(),
+            Running::Tun { host_pid } => *host_pid,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct CoreState {
-    child: Mutex<Option<CommandChild>>,
+    running: Mutex<Option<Running>>,
     log: Mutex<Vec<String>>,
 }
 
 impl CoreState {
     pub fn is_running(&self) -> bool {
-        self.child.lock().map(|c| c.is_some()).unwrap_or(false)
+        self.running.lock().map(|r| r.is_some()).unwrap_or(false)
+    }
+
+    pub fn is_tun(&self) -> bool {
+        self.running
+            .lock()
+            .map(|r| matches!(*r, Some(Running::Tun { .. })))
+            .unwrap_or(false)
     }
 
     pub fn log_lines(&self) -> Vec<String> {
         self.log.lock().map(|l| l.clone()).unwrap_or_default()
     }
 
-    fn set_child(&self, child: Option<CommandChild>) {
-        if let Ok(mut slot) = self.child.lock() {
-            *slot = child;
+    fn install(&self, running: Running) {
+        if let Ok(mut slot) = self.running.lock() {
+            *slot = Some(running);
         }
     }
 
-    fn take_child(&self) -> Option<CommandChild> {
-        self.child.lock().ok().and_then(|mut slot| slot.take())
+    fn take(&self) -> Option<Running> {
+        self.running.lock().ok().and_then(|mut slot| slot.take())
+    }
+
+    fn holds(&self, pid: u32) -> bool {
+        self.running
+            .lock()
+            .map(|r| r.as_ref().map(Running::pid) == Some(pid))
+            .unwrap_or(false)
+    }
+
+    /// An exit notice can arrive after a restart has already installed the next
+    /// instance, so only the instance that actually exited may be cleared.
+    fn release(&self, pid: u32) -> bool {
+        let Ok(mut slot) = self.running.lock() else {
+            return false;
+        };
+        if slot.as_ref().map(Running::pid) != Some(pid) {
+            return false;
+        }
+        *slot = None;
+        true
     }
 
     fn clear_log(&self) {
@@ -149,11 +192,15 @@ pub fn write_config(app: &AppHandle, settings: &Settings) -> Result<PathBuf, Str
     Ok(path)
 }
 
-/// Stops any running core, regenerates the config and starts a fresh instance.
-pub async fn start(app: &AppHandle, settings: &Settings) -> Result<(), String> {
-    stop(app);
-    reap_orphan(app);
+fn tun_paths(app: &AppHandle) -> Result<HostPaths, String> {
+    let config = config_path(app)?;
+    let dir = config
+        .parent()
+        .ok_or_else(|| "не удалось определить каталог настроек".to_string())?;
+    Ok(HostPaths::in_dir(dir))
+}
 
+async fn ensure_ports_free(settings: &Settings) -> Result<(), String> {
     // Claiming the port must be verified *before* spawning: otherwise a stale
     // listener makes the readiness check below succeed against someone else's
     // socket while our core dies with "address already in use".
@@ -167,8 +214,52 @@ pub async fn start(app: &AppHandle, settings: &Settings) -> Result<(), String> {
             ));
         }
     }
+    Ok(())
+}
 
-    let config = write_config(app, settings)?;
+async fn await_ready(app: &AppHandle, port: u16, timeout: Duration) -> Result<(), String> {
+    let ready = tauri::async_runtime::spawn_blocking(move || wait_until_listening(port, timeout))
+        .await
+        .map_err(|err| format!("не удалось дождаться запуска ядра: {err}"))?;
+    if ready {
+        return Ok(());
+    }
+    let log = app.state::<CoreState>().log_lines().join("\n");
+    halt(app).await;
+    let detail = if log.trim().is_empty() {
+        format!("порт {port} не открылся")
+    } else {
+        log
+    };
+    Err(format!("ядро не запустилось: {detail}"))
+}
+
+/// Stops any running core, regenerates the config and starts a fresh instance.
+pub async fn start(app: &AppHandle, settings: &Settings) -> Result<(), String> {
+    halt(app).await;
+    reap_orphan(app);
+    ensure_ports_free(settings).await?;
+    write_config(app, settings)?;
+
+    if settings.tun {
+        start_tun(app, settings).await
+    } else {
+        start_sidecar(app, settings).await
+    }
+}
+
+/// Applies a new config to the running TUN core without asking for elevation again.
+pub async fn reload_tun(app: &AppHandle, settings: &Settings) -> Result<(), String> {
+    write_config(app, settings)?;
+    let paths = tun_paths(app)?;
+    tauri::async_runtime::spawn_blocking(move || tunhost::request_reload(&paths))
+        .await
+        .map_err(|err| format!("не удалось перезапустить ядро: {err}"))??;
+    await_ready(app, settings.listen_port, Duration::from_secs(15)).await
+}
+
+async fn start_sidecar(app: &AppHandle, settings: &Settings) -> Result<(), String> {
+    let config = config_path(app)?;
     let config_arg = config
         .to_str()
         .ok_or_else(|| "путь к конфигу содержит недопустимые символы".to_string())?
@@ -182,10 +273,11 @@ pub async fn start(app: &AppHandle, settings: &Settings) -> Result<(), String> {
         .spawn()
         .map_err(|err| format!("не удалось запустить ядро: {err}"))?;
 
+    let pid = child.pid();
     {
         let state = app.state::<CoreState>();
-        remember_pid(app, child.pid());
-        state.set_child(Some(child));
+        remember_pid(app, pid);
+        state.install(Running::Sidecar(child));
         state.clear_log();
     }
 
@@ -203,8 +295,9 @@ pub async fn start(app: &AppHandle, settings: &Settings) -> Result<(), String> {
                     let _ = handle.emit("core-log", line);
                 }
                 CommandEvent::Terminated(payload) => {
-                    state.set_child(None);
-                    forget_pid(&handle);
+                    if state.release(pid) {
+                        forget_pid(&handle);
+                    }
                     let reason = format!("ядро остановилось (код {:?})", payload.code);
                     state.push_log(reason.clone());
                     let _ = handle.emit("core-exit", reason);
@@ -215,35 +308,113 @@ pub async fn start(app: &AppHandle, settings: &Settings) -> Result<(), String> {
         }
     });
 
-    let port = settings.listen_port;
-    let ready = tauri::async_runtime::spawn_blocking(move || wait_until_listening(port))
-        .await
-        .map_err(|err| format!("не удалось дождаться запуска ядра: {err}"))?;
-
-    if !ready {
-        let log = app.state::<CoreState>().log_lines().join("\n");
-        stop(app);
-        let detail = if log.trim().is_empty() {
-            format!("порт {port} не открылся")
-        } else {
-            log
-        };
-        return Err(format!("ядро не запустилось: {detail}"));
-    }
-
-    Ok(())
+    await_ready(app, settings.listen_port, Duration::from_secs(5)).await
 }
 
+async fn start_tun(app: &AppHandle, settings: &Settings) -> Result<(), String> {
+    let paths = tun_paths(app)?;
+    let dir = paths
+        .config
+        .parent()
+        .map(PathBuf::from)
+        .ok_or_else(|| "не удалось определить каталог настроек".to_string())?;
+
+    let host_pid = tauri::async_runtime::spawn_blocking(move || tunhost::launch(&dir))
+        .await
+        .map_err(|err| format!("не удалось запустить ядро: {err}"))??;
+
+    {
+        let state = app.state::<CoreState>();
+        state.install(Running::Tun { host_pid });
+        state.clear_log();
+    }
+
+    let handle = app.clone();
+    std::thread::spawn(move || follow_tun_host(handle, host_pid, paths.log));
+
+    // Bringing up the TUN adapter and its routes takes noticeably longer than a
+    // plain listener, especially the first time Windows installs the driver.
+    await_ready(app, settings.listen_port, Duration::from_secs(15)).await
+}
+
+fn follow_tun_host(app: AppHandle, host_pid: u32, log: PathBuf) {
+    let mut offset = 0u64;
+    let mut partial = String::new();
+    let publish = |lines: Vec<String>| {
+        let state = app.state::<CoreState>();
+        for line in lines {
+            state.push_log(line.clone());
+            let _ = app.emit("core-log", line);
+        }
+    };
+    loop {
+        std::thread::sleep(Duration::from_millis(300));
+        publish(read_new_lines(&log, &mut offset, &mut partial));
+
+        let state = app.state::<CoreState>();
+        if !state.holds(host_pid) {
+            return;
+        }
+        if !tunhost::is_alive(host_pid) {
+            publish(read_new_lines(&log, &mut offset, &mut partial));
+            state.release(host_pid);
+            let reason = "ядро остановилось".to_string();
+            state.push_log(reason.clone());
+            let _ = app.emit("core-exit", reason);
+            return;
+        }
+    }
+}
+
+fn read_new_lines(path: &Path, offset: &mut u64, partial: &mut String) -> Vec<String> {
+    let Ok(mut file) = fs::File::open(path) else {
+        return Vec::new();
+    };
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    if len < *offset {
+        *offset = 0;
+        partial.clear();
+    }
+    if len == *offset || file.seek(SeekFrom::Start(*offset)).is_err() {
+        return Vec::new();
+    }
+    let mut chunk = Vec::new();
+    if file.read_to_end(&mut chunk).is_err() {
+        return Vec::new();
+    }
+    *offset += chunk.len() as u64;
+    partial.push_str(&String::from_utf8_lossy(&chunk));
+
+    let mut lines = Vec::new();
+    while let Some(idx) = partial.find('\n') {
+        let line = partial[..idx].trim_end().to_string();
+        partial.drain(..=idx);
+        if !line.is_empty() {
+            lines.push(line);
+        }
+    }
+    lines
+}
+
+/// Blocks for up to a few seconds in TUN mode while the elevated host winds down.
 pub fn stop(app: &AppHandle) {
-    if let Some(child) = app.state::<CoreState>().take_child() {
+    if let Some(Running::Sidecar(child)) = app.state::<CoreState>().take() {
         let _ = child.kill();
     }
     forget_pid(app);
+    if let Ok(paths) = tun_paths(app) {
+        tunhost::request_stop(&paths);
+    }
 }
 
-fn wait_until_listening(port: u16) -> bool {
+pub async fn halt(app: &AppHandle) {
+    let handle = app.clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || stop(&handle)).await;
+}
+
+fn wait_until_listening(port: u16, timeout: Duration) -> bool {
     let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port));
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
             return true;

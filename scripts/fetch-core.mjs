@@ -66,7 +66,12 @@ async function fetchBuild(slug) {
   await pipeline(res.body, createWriteStream(archive));
 
   // bsdtar ships with macOS and Windows 10+ and reads both tar.gz and zip.
-  execFileSync("tar", ["-xf", archive, "-C", work], { stdio: "inherit" });
+  // GNU tar from Git Bash often shadows it on PATH and misreads "C:\" as a remote host.
+  const tar =
+    process.platform === "win32"
+      ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+      : "tar";
+  execFileSync(tar, ["-xf", archive, "-C", work], { stdio: "inherit" });
 
   await mkdir(OUT_DIR, { recursive: true });
   await copyFile(join(work, name, `sing-box${build.exe}`), dest);

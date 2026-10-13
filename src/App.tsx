@@ -85,6 +85,20 @@ export function App() {
     }
   }
 
+  async function switchTun(next: Settings) {
+    if (!running) {
+      await persist(next);
+      return;
+    }
+    setBusy("connecting");
+    try {
+      await persist(next);
+    } finally {
+      setBusy("idle");
+      void getStatus().then(setStatus);
+    }
+  }
+
   async function probe() {
     setProbing(true);
     setIps({});
@@ -110,7 +124,7 @@ export function App() {
     );
   }
 
-  const { settings, running, system_proxy_active } = status;
+  const { settings, running, system_proxy_active, tun_active } = status;
   const working = busy !== "idle";
 
   const routed = [
@@ -222,14 +236,33 @@ export function App() {
             </label>
             <label className="flex items-center justify-between gap-3">
               <span className="text-xs text-fg-muted">
-                Системный прокси
+                Режим TUN
                 <span className="text-fg-muted/60">
                   {" "}
-                  · направить трафик системы на 127.0.0.1:{settings.listen_port}
+                  · перехватывать трафик всех приложений, включая UDP и тех, кто игнорирует
+                  прокси · нужны права администратора
                 </span>
               </span>
               <Switch
-                checked={settings.system_proxy}
+                checked={settings.tun}
+                disabled={working}
+                onCheckedChange={(on) => void switchTun({ ...settings, tun: on })}
+                aria-label="Режим TUN"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-xs text-fg-muted">
+                Системный прокси
+                <span className="text-fg-muted/60">
+                  {" "}
+                  {settings.tun
+                    ? "· не нужен в режиме TUN"
+                    : `· направить трафик системы на 127.0.0.1:${settings.listen_port}`}
+                </span>
+              </span>
+              <Switch
+                checked={settings.system_proxy && !settings.tun}
+                disabled={settings.tun}
                 onCheckedChange={(on) => void persist({ ...settings, system_proxy: on })}
                 aria-label="Системный прокси"
               />
@@ -242,12 +275,18 @@ export function App() {
                 aria-label="Автозапуск"
               />
             </label>
-            {running && settings.system_proxy && !system_proxy_active ? (
+            {running && tun_active ? (
+              <p className="text-xs text-fg-muted/70">
+                TUN включён: весь трафик системы проходит через ядро, правила те же — список идёт
+                через сервер, остальное напрямую.
+              </p>
+            ) : null}
+            {running && !tun_active && settings.system_proxy && !system_proxy_active ? (
               <p className="text-xs text-warn">
                 Ядро работает, но системный прокси не выставлен — трафик идёт напрямую.
               </p>
             ) : null}
-            {running && !settings.system_proxy ? (
+            {running && !tun_active && !settings.system_proxy ? (
               <p className="text-xs text-fg-muted/70">
                 Системный прокси выключен: в Routeway попадёт только то, что ты направишь на
                 127.0.0.1:{settings.listen_port} вручную — например через переменные окружения.

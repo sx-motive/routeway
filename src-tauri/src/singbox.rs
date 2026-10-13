@@ -84,6 +84,34 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
         dns_rules.push(json!({ "domain_suffix": domains, "server": "dns-proxy" }));
     }
 
+    let mut inbounds = vec![
+        json!({
+            "type": "mixed",
+            "tag": "in",
+            "listen": "127.0.0.1",
+            "listen_port": settings.listen_port
+        }),
+        json!({
+            "type": "mixed",
+            "tag": "probe",
+            "listen": "127.0.0.1",
+            "listen_port": settings.listen_port + 1
+        }),
+    ];
+    if settings.tun {
+        inbounds.push(json!({
+            "type": "tun",
+            "tag": "tun",
+            "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+            "mtu": 9000,
+            "auto_route": true,
+            // Without it Windows also asks the ISP resolver over the physical
+            // interface, and a poisoned answer for a listed domain wins the race.
+            "strict_route": true,
+            "stack": "mixed"
+        }));
+    }
+
     Ok(json!({
         "log": { "level": "warn", "timestamp": true },
         "dns": {
@@ -94,20 +122,7 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
             "rules": dns_rules,
             "strategy": "prefer_ipv4"
         },
-        "inbounds": [
-            {
-                "type": "mixed",
-                "tag": "in",
-                "listen": "127.0.0.1",
-                "listen_port": settings.listen_port
-            },
-            {
-                "type": "mixed",
-                "tag": "probe",
-                "listen": "127.0.0.1",
-                "listen_port": settings.listen_port + 1
-            }
-        ],
+        "inbounds": inbounds,
         "outbounds": [
             proxy_outbound,
             { "type": "direct", "tag": "direct" }
@@ -118,7 +133,10 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
             "default_domain_resolver": "dns-direct",
             // Looking up the owning process costs a syscall per connection, so
             // only ask for it when a rule actually depends on it.
-            "find_process": has_process_rules
+            "find_process": has_process_rules,
+            // Direct and server-bound sockets must bind the physical interface,
+            // otherwise auto_route sends them straight back into the tunnel.
+            "auto_detect_interface": settings.tun
         }
     }))
 }
@@ -221,6 +239,34 @@ mod tests {
         assert_eq!(cfg["route"]["find_process"], false);
         let rules = cfg["route"]["rules"].as_array().unwrap();
         assert!(rules.iter().all(|r| r["process_name"].is_null()));
+    }
+
+    #[test]
+    fn proxy_mode_has_no_tun_inbound() {
+        let cfg = build_config(&settings_with(&["youtube.com"])).unwrap();
+        let inbounds = cfg["inbounds"].as_array().unwrap();
+        assert!(inbounds.iter().all(|i| i["type"] != "tun"));
+        assert_eq!(cfg["route"]["auto_detect_interface"], false);
+    }
+
+    #[test]
+    fn tun_mode_captures_everything_but_keeps_the_split() {
+        let mut settings = settings_with(&["youtube.com"]);
+        settings.tun = true;
+        let cfg = build_config(&settings).unwrap();
+
+        let inbounds = cfg["inbounds"].as_array().unwrap();
+        let tun = inbounds.iter().find(|i| i["type"] == "tun").unwrap();
+        assert_eq!(tun["auto_route"], true);
+        assert_eq!(cfg["route"]["auto_detect_interface"], true);
+
+        assert!(inbounds.iter().any(|i| i["tag"] == "in"));
+        assert!(inbounds.iter().any(|i| i["tag"] == "probe"));
+
+        let rules = cfg["route"]["rules"].as_array().unwrap();
+        assert_eq!(rules[0]["action"], "sniff");
+        assert!(rules.iter().any(|r| r["action"] == "hijack-dns"));
+        assert_eq!(cfg["route"]["final"], "direct");
     }
 
     #[test]
