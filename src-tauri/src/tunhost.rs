@@ -39,10 +39,10 @@ impl HostPaths {
 }
 
 fn core_binary() -> Result<PathBuf, String> {
-    let exe = std::env::current_exe().map_err(|err| format!("не удалось найти себя: {err}"))?;
+    let exe = std::env::current_exe().map_err(|err| t!("err.self_exe", err = err))?;
     let dir = exe
         .parent()
-        .ok_or_else(|| "не удалось определить каталог приложения".to_string())?;
+        .ok_or_else(|| t!("err.config_dir_plain"))?;
     Ok(dir.join(if cfg!(windows) { "sing-box.exe" } else { "sing-box" }))
 }
 
@@ -53,10 +53,10 @@ fn spawn_core(core: &Path, paths: &HostPaths, truncate_log: bool) -> Result<Chil
         .append(!truncate_log)
         .truncate(truncate_log)
         .open(&paths.log)
-        .map_err(|err| format!("не удалось открыть журнал: {err}"))?;
+        .map_err(|err| t!("err.write_file", path = paths.log.display(), err = err))?;
     let log_err = log
         .try_clone()
-        .map_err(|err| format!("не удалось открыть журнал: {err}"))?;
+        .map_err(|err| t!("err.write_file", path = paths.log.display(), err = err))?;
 
     let mut command = Command::new(core);
     command
@@ -77,7 +77,7 @@ fn spawn_core(core: &Path, paths: &HostPaths, truncate_log: bool) -> Result<Chil
 
     command
         .spawn()
-        .map_err(|err| format!("не удалось запустить ядро: {err}"))
+        .map_err(|err| t!("err.core_spawn", err = err))
 }
 
 fn append_log(path: &Path, line: &str) {
@@ -151,11 +151,11 @@ pub fn request_stop(paths: &HostPaths) {
 }
 
 pub fn request_reload(paths: &HostPaths) -> Result<(), String> {
-    fs::write(&paths.reload, b"").map_err(|err| format!("не удалось перезапустить ядро: {err}"))?;
+    fs::write(&paths.reload, b"").map_err(|err| t!("err.core_restart", err = err))?;
     let deadline = Instant::now() + Duration::from_secs(10);
     while paths.reload.exists() {
         if Instant::now() > deadline {
-            return Err("ядро не ответило на перезапуск".into());
+            return Err(t!("err.core_no_reload"));
         }
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -178,9 +178,9 @@ pub fn launch(dir: &Path) -> Result<u32, String> {
             let log = fs::read_to_string(&paths.log).unwrap_or_default();
             let detail = log.trim();
             return Err(if detail.is_empty() {
-                "ядро в режиме TUN не запустилось".into()
+                t!("err.tun_failed")
             } else {
-                format!("ядро в режиме TUN не запустилось: {detail}")
+                t!("err.tun_failed_detail", detail = detail)
             });
         }
         std::thread::sleep(Duration::from_millis(100));
@@ -210,10 +210,10 @@ mod imp {
     }
 
     pub fn launch_elevated(dir: &Path, parent: u32) -> Result<(), String> {
-        let exe = std::env::current_exe().map_err(|err| format!("не удалось найти себя: {err}"))?;
+        let exe = std::env::current_exe().map_err(|err| t!("err.self_exe", err = err))?;
         let dir = dir.to_string_lossy();
         if dir.contains('"') {
-            return Err(format!("неподдерживаемый путь к настройкам: {dir}"));
+            return Err(t!("err.unsupported_path", path = dir));
         }
         let params = format!(
             "{} \"{}\" {parent}",
@@ -238,9 +238,9 @@ mod imp {
         }
         let code = unsafe { GetLastError() };
         if code == ERROR_CANCELLED {
-            return Err("отменено пользователем".into());
+            return Err(t!("err.cancelled"));
         }
-        Err(format!("не удалось получить права администратора (код {code})"))
+        Err(t!("err.elevation_code", code = code))
     }
 
     pub fn is_alive(pid: u32) -> bool {
@@ -263,35 +263,36 @@ mod imp {
 
     fn quoted(value: &str) -> Result<String, String> {
         if value.contains('\'') || value.contains('"') || value.contains('\\') {
-            return Err(format!("неподдерживаемый путь: {value}"));
+            return Err(t!("err.unsupported_path", path = value));
         }
         Ok(format!("'{value}'"))
     }
 
     pub fn launch_elevated(dir: &Path, parent: u32) -> Result<(), String> {
-        let exe = std::env::current_exe().map_err(|err| format!("не удалось найти себя: {err}"))?;
+        let exe = std::env::current_exe().map_err(|err| t!("err.self_exe", err = err))?;
         let command = format!(
             "{} {} {} {parent} > /dev/null 2>&1 &",
             quoted(&exe.to_string_lossy())?,
             super::HOST_FLAG,
             quoted(&dir.to_string_lossy())?,
         );
+        let prompt = crate::i18n::tr("tun.prompt");
         let script = format!(
-            "do shell script \"{command}\" with prompt \"Routeway включает режим TUN\" with administrator privileges"
+            "do shell script \"{command}\" with prompt \"{prompt}\" with administrator privileges"
         );
         let out = Command::new("/usr/bin/osascript")
             .arg("-e")
             .arg(&script)
             .output()
-            .map_err(|err| format!("не удалось запустить osascript: {err}"))?;
+            .map_err(|err| t!("err.osascript", err = err))?;
         if out.status.success() {
             return Ok(());
         }
         let stderr = String::from_utf8_lossy(&out.stderr);
         if stderr.contains("-128") {
-            return Err("отменено пользователем".into());
+            return Err(t!("err.cancelled"));
         }
-        Err(format!("не удалось получить права администратора: {}", stderr.trim()))
+        Err(t!("err.elevation", err = stderr.trim()))
     }
 
     pub fn is_alive(pid: u32) -> bool {

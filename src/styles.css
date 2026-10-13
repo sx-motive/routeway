@@ -2,13 +2,16 @@
 
 @theme {
   --color-bg: oklch(0.145 0 0);
-  --color-bg-elevated: oklch(0.21 0 0);
+  --color-surface: oklch(0.175 0 0);
+  --color-field: oklch(0.145 0 0);
+  --color-bg-elevated: oklch(0.23 0 0);
   --color-fg: oklch(0.985 0 0);
   --color-fg-muted: oklch(0.7 0 0);
   --color-border: oklch(0.28 0 0);
-  --color-accent: oklch(0.72 0.12 50);
+  --color-frame: oklch(0.36 0 0);
+  --color-accent: oklch(0.65 0.21 24);
   --color-accent-fg: oklch(0.14 0 0);
-  --color-ring: oklch(0.72 0.12 50 / 0.6);
+  --color-ring: oklch(0.65 0.21 24 / 0.6);
   --color-overlay: oklch(0 0 0 / 0.55);
   --color-ok: oklch(0.72 0.16 150);
   --color-warn: oklch(0.75 0.15 85);
@@ -26,7 +29,7 @@
 
   --font-sans:
     "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+    "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
 
   --font-mono:
     "Geist Mono Variable", "JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas",
@@ -34,14 +37,17 @@
 }
 
 [data-theme="light"] {
-  --color-bg: oklch(0.99 0 0);
-  --color-bg-elevated: oklch(0.965 0 0);
+  --color-bg: oklch(0.97 0 0);
+  --color-surface: oklch(0.995 0 0);
+  --color-field: oklch(1 0 0);
+  --color-bg-elevated: oklch(0.94 0 0);
   --color-fg: oklch(0.18 0 0);
   --color-fg-muted: oklch(0.48 0 0);
   --color-border: oklch(0.88 0 0);
-  --color-accent: oklch(0.62 0.14 45);
+  --color-frame: oklch(0.8 0 0);
+  --color-accent: oklch(0.56 0.21 25);
   --color-accent-fg: oklch(0.99 0 0);
-  --color-ring: oklch(0.62 0.14 45 / 0.5);
+  --color-ring: oklch(0.56 0.21 25 / 0.5);
   --color-overlay: oklch(0.2 0 0 / 0.35);
   --color-ok: oklch(0.55 0.15 150);
   --color-warn: oklch(0.6 0.14 85);
@@ -53,6 +59,11 @@ body,
 #root {
   height: 100%;
   overflow: hidden;
+}
+
+#root {
+  box-sizing: border-box;
+  border: 1px solid var(--color-frame);
 }
 
 body {

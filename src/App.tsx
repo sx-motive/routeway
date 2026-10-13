@@ -1,46 +1,60 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ArrowDownToLine, Loader2, RefreshCw, ShieldCheck, Terminal } from "lucide-react";
-import { TitleBar } from "./components/TitleBar";
+import {
+  ArrowDownToLine,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
+  Terminal,
+} from "lucide-react";
+import { TitleBar, type Tab } from "./components/TitleBar";
 import { ServerCard } from "./components/ServerCard";
 import { DomainList } from "./components/DomainList";
 import { ProcessList } from "./components/ProcessList";
+import { RulesDialog } from "./components/RulesDialog";
+import { ServerStatus } from "./components/ServerStatus";
 import { Button } from "./components/ui/button";
 import { Switch } from "./components/ui/switch";
+import { Card, Row, Rows } from "./components/ui/card";
+import { NumericInput } from "./components/ui/numeric-input";
 import {
   checkIp,
   connect,
   disconnect,
   getStatus,
   saveSettings,
+  setLanguage,
   type Settings,
   type Status,
 } from "./lib/ipc";
 import type { Server } from "./lib/vless";
 import { checkForUpdate, type UpdateAvailable } from "./lib/updateCheck";
-import { countOf } from "./lib/plural";
+import { LANGS, toLang, useI18n } from "./i18n";
 
 type Busy = "idle" | "connecting" | "disconnecting";
 
 export function App() {
+  const { t, lang, setLang } = useI18n();
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState<Busy>("idle");
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
-  const [showLog, setShowLog] = useState(false);
+  const [tab, setTab] = useState<Tab>("home");
   const [update, setUpdate] = useState<UpdateAvailable | null>(null);
   const [installing, setInstalling] = useState(false);
   const [ips, setIps] = useState<{ direct?: string; server?: string }>({});
   const [probing, setProbing] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void getStatus().then((s) => {
       setStatus(s);
       setLog(s.log);
+      setLang(toLang(s.settings.language));
     });
     void checkForUpdate().then(setUpdate);
-  }, []);
+  }, [setLang]);
 
   useEffect(() => {
     const unlisten = Promise.all([
@@ -56,10 +70,10 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (showLog && logRef.current) {
+    if (tab === "home" && logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
-  }, [log, showLog]);
+  }, [log, tab]);
 
   const persist = useCallback(async (next: Settings) => {
     setStatus((prev) => (prev ? { ...prev, settings: next } : prev));
@@ -99,6 +113,15 @@ export function App() {
     }
   }
 
+  async function changeLanguage(next: typeof lang) {
+    setLang(next);
+    try {
+      setStatus(await setLanguage(next));
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
   async function probe() {
     setProbing(true);
     setIps({});
@@ -115,10 +138,10 @@ export function App() {
   if (!status) {
     return (
       <div className="flex h-full flex-col">
-        <TitleBar />
+        <TitleBar tab={tab} onTabChange={setTab} />
         <div className="flex flex-1 items-center justify-center text-xs text-fg-muted">
           <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-          Загрузка…
+          {t("app.loading")}
         </div>
       </div>
     );
@@ -129,248 +152,124 @@ export function App() {
 
   const routed = [
     settings.processes.length > 0
-      ? countOf(settings.processes.length, ["приложение", "приложения", "приложений"])
+      ? t("count.apps", { n: settings.processes.length })
       : null,
     settings.domains.length > 0
-      ? countOf(settings.domains.length, ["домен", "домена", "доменов"])
+      ? t("count.domains", { n: settings.domains.length })
       : null,
-  ].filter(Boolean);
+  ].filter((part): part is string => part !== null);
   const routedSummary =
     routed.length === 0
-      ? "ничего не направлено через сервер — весь трафик идёт напрямую"
-      : `${routed.join(" и ")} через ${settings.server?.label ?? "сервер"} · остальное напрямую`;
+      ? t("status.nothingRouted")
+      : t("status.routed", {
+          items: routed.length === 2 ? t("status.join", { a: routed[0], b: routed[1] }) : routed[0],
+          server: settings.server?.label ?? t("status.server"),
+        });
+
+  const updateBanner = update ? (
+    <div className="flex shrink-0 items-center justify-between border border-accent/40 bg-accent/5 px-4 py-2">
+      <span className="text-xs text-fg">
+        {t("update.available", { version: update.version })}
+        {update.notes ? <span className="text-fg-muted"> · {update.notes}</span> : null}
+      </span>
+      <Button
+        size="sm"
+        disabled={installing}
+        onClick={() => {
+          setInstalling(true);
+          void update.install().catch((err) => {
+            setError(String(err));
+            setInstalling(false);
+          });
+        }}
+      >
+        {installing ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <ArrowDownToLine className="h-3.5 w-3.5" />
+        )}
+        {t("update.install")}
+      </Button>
+    </div>
+  ) : null;
+
+  const errorBanner = error ? (
+    <p className="shrink-0 border border-danger/40 bg-danger/5 px-4 py-2.5 text-xs text-danger">
+      {error}
+    </p>
+  ) : null;
 
   return (
     <div className="flex h-full flex-col">
-      <TitleBar />
+      <TitleBar tab={tab} onTabChange={setTab} />
 
-      {/* A block container, not a flex column: flex children shrink below their
-          content height in a scroll container and spill over each other. */}
-      <div className="thin-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-4">
-        {update ? (
-          <div className="flex items-center justify-between border border-accent/40 bg-accent/5 px-3 py-2">
-            <span className="text-xs text-fg">
-              Доступна версия {update.version}
-              {update.notes ? <span className="text-fg-muted"> · {update.notes}</span> : null}
-            </span>
-            <Button
-              size="sm"
-              disabled={installing}
-              onClick={() => {
-                setInstalling(true);
-                void update.install().catch((err) => {
-                  setError(String(err));
-                  setInstalling(false);
-                });
-              }}
-            >
-              {installing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <ArrowDownToLine className="h-3.5 w-3.5" />
-              )}
-              Обновить
-            </Button>
-          </div>
-        ) : null}
+      {tab === "home" ? (
+        <div className="thin-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
+          {updateBanner}
 
-        <section className="border border-border">
-          <div className="flex items-center gap-3 px-3 py-3">
-            <span
-              className={[
-                "h-2 w-2 shrink-0",
-                working
-                  ? "bg-warn pulse-dot"
-                  : running
-                    ? "bg-ok"
-                    : "bg-fg-muted/40",
-              ].join(" ")}
-            />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm text-fg">
-                {working
-                  ? busy === "connecting"
-                    ? "Подключаюсь…"
-                    : "Отключаюсь…"
-                  : running
-                    ? "Работает"
-                    : "Выключено"}
-              </p>
-              <p className="truncate text-xs text-fg-muted">
-                {running ? routedSummary : "весь трафик идёт напрямую"}
-              </p>
+          <Card className="shrink-0">
+            <div className="flex min-h-16 items-center gap-3 px-4 py-3">
+              <span
+                className={[
+                  "h-2 w-2 shrink-0",
+                  working ? "bg-warn pulse-dot" : running ? "bg-ok" : "bg-fg-muted/40",
+                ].join(" ")}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-fg">
+                  {working
+                    ? busy === "connecting"
+                      ? t("status.connecting")
+                      : t("status.disconnecting")
+                    : running
+                      ? tun_active
+                        ? t("status.onTun")
+                        : t("status.on")
+                      : t("status.off")}
+                </p>
+                <p className="truncate text-xs text-fg-muted">
+                  {running ? routedSummary : t("status.allDirect")}
+                </p>
+              </div>
+              <Switch
+                checked={running}
+                disabled={working || !settings.server}
+                onCheckedChange={(on) => void toggle(on)}
+                aria-label={t("status.toggle")}
+              />
             </div>
-            <Switch
-              checked={running}
-              disabled={working || !settings.server}
-              onCheckedChange={(on) => void toggle(on)}
-              aria-label="Включить маршрутизацию"
-            />
-          </div>
-
-          <div className="flex flex-col gap-2 border-t border-border px-3 py-2.5">
-            <label className="flex items-center justify-between gap-3">
-              <span className="text-xs text-fg-muted">
-                Порт
-                <span className="text-fg-muted/60">
-                  {" "}
-                  · приложения ходят на 127.0.0.1:{settings.listen_port}, пробник занимает{" "}
-                  {settings.listen_port + 1}
-                </span>
-              </span>
-              <input
-                type="number"
-                min={1025}
-                max={65534}
-                value={settings.listen_port}
-                disabled={running}
-                title={running ? "Выключите маршрутизацию, чтобы сменить порт" : undefined}
-                onChange={(e) => {
-                  const port = Number(e.target.value);
-                  if (port >= 1025 && port <= 65534) {
-                    void persist({ ...settings, listen_port: port });
-                  }
-                }}
-                className="h-7 w-24 border border-border bg-bg px-2 text-right font-mono text-xs text-fg focus-visible:border-accent focus-visible:outline-none disabled:opacity-50"
-              />
-            </label>
-            <label className="flex items-center justify-between gap-3">
-              <span className="text-xs text-fg-muted">
-                Режим TUN
-                <span className="text-fg-muted/60">
-                  {" "}
-                  · перехватывать трафик всех приложений, включая UDP и тех, кто игнорирует
-                  прокси · нужны права администратора
-                </span>
-              </span>
-              <Switch
-                checked={settings.tun}
-                disabled={working}
-                onCheckedChange={(on) => void switchTun({ ...settings, tun: on })}
-                aria-label="Режим TUN"
-              />
-            </label>
-            <label className="flex items-center justify-between gap-3">
-              <span className="text-xs text-fg-muted">
-                Системный прокси
-                <span className="text-fg-muted/60">
-                  {" "}
-                  {settings.tun
-                    ? "· не нужен в режиме TUN"
-                    : `· направить трафик системы на 127.0.0.1:${settings.listen_port}`}
-                </span>
-              </span>
-              <Switch
-                checked={settings.system_proxy && !settings.tun}
-                disabled={settings.tun}
-                onCheckedChange={(on) => void persist({ ...settings, system_proxy: on })}
-                aria-label="Системный прокси"
-              />
-            </label>
-            <label className="flex items-center justify-between gap-3">
-              <span className="text-xs text-fg-muted">Запускать при входе в систему</span>
-              <Switch
-                checked={settings.autostart}
-                onCheckedChange={(on) => void persist({ ...settings, autostart: on })}
-                aria-label="Автозапуск"
-              />
-            </label>
-            {running && tun_active ? (
-              <p className="text-xs text-fg-muted/70">
-                TUN включён: весь трафик системы проходит через ядро, правила те же — список идёт
-                через сервер, остальное напрямую.
-              </p>
-            ) : null}
             {running && !tun_active && settings.system_proxy && !system_proxy_active ? (
-              <p className="text-xs text-warn">
-                Ядро работает, но системный прокси не выставлен — трафик идёт напрямую.
+              <p className="border-t border-border px-4 py-2.5 text-xs text-warn">
+                {t("warn.proxyNotSet")}
               </p>
             ) : null}
             {running && !tun_active && !settings.system_proxy ? (
-              <p className="text-xs text-fg-muted/70">
-                Системный прокси выключен: в Routeway попадёт только то, что ты направишь на
-                127.0.0.1:{settings.listen_port} вручную — например через переменные окружения.
-                Остальные приложения о нём не знают.
+              <p className="border-t border-border px-4 py-2.5 text-xs text-fg-muted">
+                {t("warn.proxyOff", { port: settings.listen_port })}
               </p>
             ) : null}
-          </div>
-        </section>
+          </Card>
 
-        {error ? (
-          <p className="border border-danger/40 bg-danger/5 px-3 py-2 text-xs text-danger">
-            {error}
-          </p>
-        ) : null}
+          {errorBanner}
 
-        <ServerCard
-          server={settings.server}
-          onChange={(server: Server) => void persist({ ...settings, server })}
-        />
+          <ServerStatus
+            server={settings.server}
+            running={running}
+            onEdit={() => setTab("settings")}
+          />
 
-        <ProcessList
-          processes={settings.processes}
-          onChange={(processes) => void persist({ ...settings, processes })}
-        />
-
-        <DomainList
-          domains={settings.domains}
-          onChange={(domains) => void persist({ ...settings, domains })}
-        />
-
-        <section className="border border-border">
-          <header className="flex items-center justify-between border-b border-border px-3 py-2">
-            <h2 className="text-xs font-medium tracking-wide text-fg-muted uppercase">
-              Проверка
-            </h2>
-            <Button variant="ghost" size="sm" disabled={!running || probing} onClick={probe}>
-              {probing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-              Проверить IP
-            </Button>
-          </header>
-          <div className="grid grid-cols-2 divide-x divide-border">
-            <div className="px-3 py-3">
-              <p className="text-[11px] text-fg-muted/70">Напрямую</p>
-              <p className="font-mono text-xs text-fg">{ips.direct ?? "—"}</p>
-            </div>
-            <div className="px-3 py-3">
-              <p className="text-[11px] text-fg-muted/70">Через сервер</p>
-              <p className="font-mono text-xs text-fg">
-                {ips.server ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    {ips.server}
-                    {ips.direct && ips.server !== "—" && ips.server !== ips.direct ? (
-                      <ShieldCheck className="h-3 w-3 text-ok" />
-                    ) : null}
-                  </span>
-                ) : (
-                  "—"
-                )}
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section className="border border-border">
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-bg-elevated"
-            onClick={() => setShowLog((v) => !v)}
+          <Card
+            className="flex min-h-40 flex-1 flex-col"
+            title={
+              <span className="inline-flex items-center gap-2">
+                <Terminal className="h-3.5 w-3.5" />
+                {t("log.title")}
+              </span>
+            }
           >
-            <Terminal className="h-3.5 w-3.5" />
-            Журнал ядра
-            <span className="ml-auto text-fg-muted/50">{showLog ? "скрыть" : "показать"}</span>
-          </button>
-          {showLog ? (
-            <div
-              ref={logRef}
-              className="thin-scroll max-h-40 overflow-y-auto border-t border-border bg-bg px-3 py-2"
-            >
+            <div ref={logRef} className="thin-scroll min-h-0 flex-1 overflow-y-auto bg-bg px-4 py-2">
               {log.length === 0 ? (
-                <p className="text-xs text-fg-muted/50">пусто</p>
+                <p className="text-xs text-fg-muted/50">{t("log.empty")}</p>
               ) : (
                 log.map((line, index) => (
                   <p key={index} className="font-mono text-[11px] leading-relaxed text-fg-muted">
@@ -379,9 +278,174 @@ export function App() {
                 ))
               )}
             </div>
-          ) : null}
-        </section>
-      </div>
+          </Card>
+        </div>
+      ) : (
+        // A block container, not a flex column: flex children shrink below their
+        // content height in a scroll container and spill over each other.
+        <div className="thin-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-4">
+          {updateBanner}
+          {errorBanner}
+
+          <Card title={t("settings.general")}>
+            <Rows>
+              <Row
+                interactive={false}
+                label={t("settings.language")}
+                control={
+                  <div className="flex h-8 border border-border bg-field">
+                    {LANGS.map(({ id, label }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        aria-pressed={lang === id}
+                        onClick={() => void changeLanguage(id)}
+                        className={[
+                          "px-3 text-xs transition-colors",
+                          lang === id
+                            ? "bg-bg-elevated text-fg"
+                            : "text-fg-muted hover:text-fg",
+                        ].join(" ")}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                }
+              />
+              <Row
+                label={t("settings.autostart")}
+                control={
+                  <Switch
+                    checked={settings.autostart}
+                    onCheckedChange={(on) => void persist({ ...settings, autostart: on })}
+                    aria-label={t("settings.autostart")}
+                  />
+                }
+              />
+            </Rows>
+          </Card>
+
+          <ServerCard
+            server={settings.server}
+            onChange={(server: Server) => void persist({ ...settings, server })}
+          />
+
+          <Card title={t("settings.routing")}>
+            <Rows>
+              <Row
+                label={t("settings.tun")}
+                hint={t("settings.tunHint")}
+                control={
+                  <Switch
+                    checked={settings.tun}
+                    disabled={working}
+                    onCheckedChange={(on) => void switchTun({ ...settings, tun: on })}
+                    aria-label={t("settings.tun")}
+                  />
+                }
+              />
+              <Row
+                label={t("settings.proxy")}
+                hint={
+                  settings.tun
+                    ? t("settings.proxyTunHint")
+                    : t("settings.proxyHint", { port: settings.listen_port })
+                }
+                control={
+                  <Switch
+                    checked={settings.system_proxy && !settings.tun}
+                    disabled={settings.tun}
+                    onCheckedChange={(on) => void persist({ ...settings, system_proxy: on })}
+                    aria-label={t("settings.proxy")}
+                  />
+                }
+              />
+              <Row
+                label={t("settings.port")}
+                hint={t("settings.portHint", {
+                  port: settings.listen_port,
+                  probe: settings.listen_port + 1,
+                })}
+                control={
+                  <NumericInput
+                    min={1025}
+                    max={65534}
+                    value={settings.listen_port}
+                    disabled={running}
+                    title={running ? t("settings.portLocked") : undefined}
+                    onValueChange={(port) => void persist({ ...settings, listen_port: port })}
+                    className="h-8 w-24 px-2 text-right font-mono text-xs"
+                  />
+                }
+              />
+            </Rows>
+          </Card>
+
+          <ProcessList
+            processes={settings.processes}
+            onChange={(processes) => void persist({ ...settings, processes })}
+            onEditFile={() => setRulesOpen(true)}
+          />
+
+          <DomainList
+            domains={settings.domains}
+            onChange={(domains) => void persist({ ...settings, domains })}
+            onEditFile={() => setRulesOpen(true)}
+          />
+
+          <Card
+            title={t("check.title")}
+            aside={
+              <Button
+                variant="ghost"
+                size="sm"
+                className="-mr-2 h-7"
+                disabled={!running || probing}
+                onClick={probe}
+              >
+                {probing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                {t("check.run")}
+              </Button>
+            }
+          >
+            <div className="grid grid-cols-2 divide-x divide-border">
+              <div className="px-4 py-3">
+                <p className="text-xs text-fg-muted">{t("check.direct")}</p>
+                <p className="mt-0.5 font-mono text-sm text-fg">{ips.direct ?? "—"}</p>
+              </div>
+              <div className="px-4 py-3">
+                <p className="text-xs text-fg-muted">{t("check.server")}</p>
+                <p className="mt-0.5 font-mono text-sm text-fg">
+                  {ips.server ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      {ips.server}
+                      {ips.direct && ips.server !== "—" && ips.server !== ips.direct ? (
+                        <ShieldCheck className="h-3.5 w-3.5 text-ok" />
+                      ) : null}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </p>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      <RulesDialog
+        open={rulesOpen}
+        onOpenChange={setRulesOpen}
+        onSaved={(next) => {
+          setStatus(next);
+          setError(null);
+        }}
+      />
     </div>
   );
 }

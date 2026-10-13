@@ -86,7 +86,7 @@ mod imp {
 
     pub fn restore(raw: &str) -> Result<(), String> {
         let snapshot: Snapshot = serde_json::from_str(raw)
-            .map_err(|err| format!("не удалось прочитать снимок настроек: {err}"))?;
+            .map_err(|err| t!("err.read_snapshot", err = err))?;
 
         // Prefer the service recorded in the snapshot, but fall back to whatever
         // is primary now — the user may have switched Wi-Fi for Ethernet since.
@@ -96,7 +96,7 @@ mod imp {
             snapshot.service.clone()
         };
         if service.contains('\'') || service.contains('"') || service.contains('\\') {
-            return Err(format!("неподдерживаемое имя сетевого сервиса: {service}"));
+            return Err(t!("err.network_service_name", name = service));
         }
 
         let ns = "/usr/sbin/networksetup";
@@ -137,7 +137,7 @@ mod imp {
                 let line = line.trim();
                 line.strip_prefix("PrimaryService :").map(|v| v.trim().to_string())
             })
-            .ok_or_else(|| "нет активного сетевого подключения".to_string())?;
+            .ok_or_else(|| t!("err.no_network"))?;
 
         let setup = scutil(&format!("show Setup:/Network/Service/{service_id}"))?;
         let name = setup
@@ -146,10 +146,10 @@ mod imp {
                 let line = line.trim();
                 line.strip_prefix("UserDefinedName :").map(|v| v.trim().to_string())
             })
-            .ok_or_else(|| "не удалось определить имя сетевого сервиса".to_string())?;
+            .ok_or_else(|| t!("err.network_service"))?;
 
         if name.contains('\'') || name.contains('"') || name.contains('\\') {
-            return Err(format!("неподдерживаемое имя сетевого сервиса: {name}"));
+            return Err(t!("err.network_service_name", name = name));
         }
         Ok(name)
     }
@@ -163,16 +163,16 @@ mod imp {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|err| format!("не удалось запустить scutil: {err}"))?;
+            .map_err(|err| t!("err.scutil", err = err))?;
         child
             .stdin
             .as_mut()
-            .ok_or_else(|| "scutil: нет stdin".to_string())?
+            .ok_or_else(|| t!("err.scutil", err = "stdin"))?
             .write_all(query.as_bytes())
-            .map_err(|err| format!("scutil: {err}"))?;
+            .map_err(|err| t!("err.scutil", err = err))?;
         let out = child
             .wait_with_output()
-            .map_err(|err| format!("scutil: {err}"))?;
+            .map_err(|err| t!("err.scutil", err = err))?;
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     }
 
@@ -183,15 +183,15 @@ mod imp {
             .arg("-e")
             .arg(&script)
             .output()
-            .map_err(|err| format!("не удалось запустить osascript: {err}"))?;
+            .map_err(|err| t!("err.osascript", err = err))?;
         if out.status.success() {
             return Ok(());
         }
         let stderr = String::from_utf8_lossy(&out.stderr);
         if stderr.contains("-128") {
-            return Err("отменено пользователем".into());
+            return Err(t!("err.cancelled"));
         }
-        Err(format!("не удалось изменить системный прокси: {}", stderr.trim()))
+        Err(t!("err.change_proxy", err = stderr.trim()))
     }
 
     pub fn enable(port: u16) -> Result<(), String> {
@@ -248,7 +248,7 @@ mod imp {
     fn open(access: u32) -> Result<RegKey, String> {
         RegKey::predef(HKEY_CURRENT_USER)
             .open_subkey_with_flags(SETTINGS_KEY, access)
-            .map_err(|err| format!("не удалось открыть настройки интернета: {err}"))
+            .map_err(|err| t!("err.open_inet_settings", err = err))
     }
 
     /// WinINet caches proxy settings; without this notification browsers keep
@@ -283,14 +283,14 @@ mod imp {
 
     pub fn restore(raw: &str) -> Result<(), String> {
         let snapshot: Snapshot = serde_json::from_str(raw)
-            .map_err(|err| format!("не удалось прочитать снимок настроек: {err}"))?;
+            .map_err(|err| t!("err.read_snapshot", err = err))?;
         let key = open(KEY_READ | KEY_WRITE)?;
         key.set_value("ProxyServer", &snapshot.server)
-            .map_err(|err| format!("не удалось вернуть ProxyServer: {err}"))?;
+            .map_err(|err| t!("err.registry_write", name = "ProxyServer", err = err))?;
         key.set_value("ProxyOverride", &snapshot.bypass)
-            .map_err(|err| format!("не удалось вернуть ProxyOverride: {err}"))?;
+            .map_err(|err| t!("err.registry_write", name = "ProxyOverride", err = err))?;
         key.set_value("ProxyEnable", &snapshot.enable)
-            .map_err(|err| format!("не удалось вернуть ProxyEnable: {err}"))?;
+            .map_err(|err| t!("err.registry_write", name = "ProxyEnable", err = err))?;
         notify();
         Ok(())
     }
@@ -298,11 +298,11 @@ mod imp {
     pub fn enable(port: u16) -> Result<(), String> {
         let key = open(KEY_READ | KEY_WRITE)?;
         key.set_value("ProxyServer", &format!("127.0.0.1:{port}"))
-            .map_err(|err| format!("не удалось записать ProxyServer: {err}"))?;
+            .map_err(|err| t!("err.registry_write", name = "ProxyServer", err = err))?;
         key.set_value("ProxyOverride", &BYPASS.to_string())
-            .map_err(|err| format!("не удалось записать ProxyOverride: {err}"))?;
+            .map_err(|err| t!("err.registry_write", name = "ProxyOverride", err = err))?;
         key.set_value("ProxyEnable", &1u32)
-            .map_err(|err| format!("не удалось включить прокси: {err}"))?;
+            .map_err(|err| t!("err.registry_write", name = "ProxyEnable", err = err))?;
         notify();
         Ok(())
     }
@@ -310,7 +310,7 @@ mod imp {
     pub fn disable() -> Result<(), String> {
         let key = open(KEY_READ | KEY_WRITE)?;
         key.set_value("ProxyEnable", &0u32)
-            .map_err(|err| format!("не удалось выключить прокси: {err}"))?;
+            .map_err(|err| t!("err.registry_write", name = "ProxyEnable", err = err))?;
         notify();
         Ok(())
     }
@@ -329,10 +329,10 @@ mod imp {
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod imp {
     pub fn enable(_port: u16) -> Result<(), String> {
-        Err("системный прокси поддерживается только на macOS и Windows".into())
+        Err(t!("err.proxy_unsupported"))
     }
     pub fn disable() -> Result<(), String> {
-        Err("системный прокси поддерживается только на macOS и Windows".into())
+        Err(t!("err.proxy_unsupported"))
     }
     pub fn is_active(_port: u16) -> bool {
         false
@@ -341,7 +341,7 @@ mod imp {
         None
     }
     pub fn restore(_raw: &str) -> Result<(), String> {
-        Err("системный прокси поддерживается только на macOS и Windows".into())
+        Err(t!("err.proxy_unsupported"))
     }
 }
 

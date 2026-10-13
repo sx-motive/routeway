@@ -15,7 +15,7 @@ const SIZE = 1024;
 const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "icon-source.png");
 
 const BG = [18, 18, 20, 255];
-const ACCENT = [232, 143, 74, 255]; // matches --color-accent
+const ACCENT = [245, 71, 75, 255]; // matches --color-accent
 const MUTED = [120, 120, 124, 255];
 
 // Segments as fractions of SIZE: [x1, y1, x2, y2, halfWidth, color]

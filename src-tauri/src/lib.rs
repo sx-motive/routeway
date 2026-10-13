@@ -1,4 +1,7 @@
+#[macro_use]
+mod i18n;
 mod core;
+mod health;
 mod settings;
 mod singbox;
 mod sysproxy;
@@ -51,7 +54,39 @@ async fn get_status(app: AppHandle) -> Status {
 /// domain list takes effect immediately.
 #[tauri::command]
 async fn save_settings(app: AppHandle, settings: Settings) -> Result<Status, String> {
+    apply(&app, settings).await
+}
+
+#[tauri::command]
+fn get_rules(app: AppHandle) -> String {
+    settings::rules_text(&app)
+}
+
+#[tauri::command]
+fn reveal_rules(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = settings::ensure_rules_file(&app)?;
+    app.opener()
+        .reveal_item_in_dir(path)
+        .map_err(|err| t!("err.open_dir", err = err))
+}
+
+#[tauri::command]
+async fn save_rules(app: AppHandle, text: String) -> Result<Status, String> {
+    let rules = settings::Rules::parse(&text)?;
+    let mut settings = settings::load(&app);
+    settings.processes = rules.apps;
+    settings.domains = rules.domains;
+    apply(&app, settings).await
+}
+
+async fn apply(app: &AppHandle, settings: Settings) -> Result<Status, String> {
+    let app = app.clone();
     settings::save(&app, &settings)?;
+    if i18n::current() != i18n::parse(&settings.language) {
+        i18n::set(&settings.language);
+        relabel_tray(&app);
+    }
 
     let autostart = app.autolaunch();
     let _ = if settings.autostart {
@@ -88,7 +123,7 @@ async fn reconcile_system_proxy(app: &AppHandle, settings: &Settings) -> Result<
             snapshot_system_proxy(app, port).await;
             return tauri::async_runtime::spawn_blocking(move || sysproxy::enable(port))
                 .await
-                .map_err(|err| format!("не удалось применить системный прокси: {err}"))?;
+                .map_err(|err| t!("err.apply_proxy", err = err))?;
         }
         return Ok(());
     }
@@ -129,6 +164,16 @@ async fn release_system_proxy(app: &AppHandle, port: u16) {
 }
 
 #[tauri::command]
+async fn set_language(app: AppHandle, language: String) -> Result<Status, String> {
+    let mut settings = settings::load(&app);
+    settings.language = language;
+    settings::save(&app, &settings)?;
+    i18n::set(&settings.language);
+    relabel_tray(&app);
+    Ok(status_of(&app, settings).await)
+}
+
+#[tauri::command]
 async fn connect(app: AppHandle) -> Result<Status, String> {
     let settings = settings::load(&app);
     core::start(&app, &settings).await?;
@@ -140,7 +185,7 @@ async fn connect(app: AppHandle) -> Result<Status, String> {
         snapshot_system_proxy(&app, port).await;
         let result = tauri::async_runtime::spawn_blocking(move || sysproxy::enable(port))
             .await
-            .map_err(|err| format!("не удалось применить системный прокси: {err}"))?;
+            .map_err(|err| t!("err.apply_proxy", err = err))?;
         if let Err(err) = result {
             // Routing without a system proxy is useless; roll the core back so the
             // UI never claims to be connected when nothing is routed.
@@ -160,6 +205,13 @@ async fn disconnect(app: AppHandle) -> Result<Status, String> {
 }
 
 #[tauri::command]
+async fn probe_server(app: AppHandle) -> Option<health::Probe> {
+    let settings = settings::load(&app);
+    let through_tunnel = app.state::<CoreState>().is_running();
+    health::probe(&settings, through_tunnel).await
+}
+
+#[tauri::command]
 async fn check_ip(app: AppHandle, through_server: bool) -> Result<String, String> {
     let settings = settings::load(&app);
     let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(20));
@@ -169,7 +221,7 @@ async fn check_ip(app: AppHandle, through_server: bool) -> Result<String, String
         // domain list — so this answers "is my server alive" unambiguously.
         let proxy = format!("http://127.0.0.1:{}", settings.listen_port + 1);
         builder = builder.proxy(
-            reqwest::Proxy::all(&proxy).map_err(|err| format!("неверный адрес прокси: {err}"))?,
+            reqwest::Proxy::all(&proxy).map_err(|err| t!("err.bad_proxy", err = err))?,
         );
     } else {
         builder = builder.no_proxy();
@@ -177,16 +229,16 @@ async fn check_ip(app: AppHandle, through_server: bool) -> Result<String, String
 
     let client = builder
         .build()
-        .map_err(|err| format!("не удалось создать HTTP-клиент: {err}"))?;
+        .map_err(|err| t!("err.http_client", err = err))?;
     let response = client
         .get("https://api.ipify.org")
         .send()
         .await
-        .map_err(|err| format!("запрос не удался: {err}"))?;
+        .map_err(|err| t!("err.request", err = err))?;
     let body = response
         .text()
         .await
-        .map_err(|err| format!("не удалось прочитать ответ: {err}"))?;
+        .map_err(|err| t!("err.read_response", err = err))?;
     Ok(body.trim().to_string())
 }
 
@@ -196,10 +248,10 @@ async fn reveal_config(app: AppHandle) -> Result<(), String> {
     let path = core::config_path(&app)?;
     let dir = path
         .parent()
-        .ok_or_else(|| "не удалось определить каталог конфига".to_string())?;
+        .ok_or_else(|| t!("err.config_dir_plain"))?;
     app.opener()
         .open_path(dir.to_string_lossy().to_string(), None::<&str>)
-        .map_err(|err| format!("не удалось открыть каталог: {err}"))
+        .map_err(|err| t!("err.open_dir", err = err))
 }
 
 /// Stops the core and hands the network back to the system. Always safe to call.
@@ -208,10 +260,26 @@ async fn teardown(app: &AppHandle, settings: &Settings) {
     release_system_proxy(app, settings.listen_port).await;
 }
 
+struct TrayItems {
+    show: MenuItem<tauri::Wry>,
+    quit: MenuItem<tauri::Wry>,
+}
+
+fn relabel_tray(app: &AppHandle) {
+    if let Some(items) = app.try_state::<TrayItems>() {
+        let _ = items.show.set_text(t!("tray.show"));
+        let _ = items.quit.set_text(t!("tray.quit"));
+    }
+}
+
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Открыть Routeway", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Выйти", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", t!("tray.show"), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", t!("tray.quit"), true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
+    app.manage(TrayItems {
+        show: show.clone(),
+        quit: quit.clone(),
+    });
 
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().unwrap())
@@ -267,14 +335,20 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_status,
             save_settings,
+            set_language,
+            get_rules,
+            save_rules,
+            reveal_rules,
             connect,
             disconnect,
             check_ip,
+            probe_server,
             reveal_config
         ])
         .setup(|app| {
             // A previous run that was killed rather than quit leaves its core
             // holding the port; clear it before anything else needs that port.
+            i18n::set(&settings::load(app.handle()).language);
             core::reap_orphan(app.handle());
             build_tray(app.handle())?;
             // A tray app can end up launched without its window surfacing (the
@@ -294,7 +368,7 @@ pub fn run() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("не удалось запустить Routeway");
+        .expect("failed to start Routeway");
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {

@@ -1,0 +1,123 @@
+import type { Dict } from "./en";
+
+export const ru: Dict = {
+  "tab.home": "Подключение",
+  "tab.settings": "Настройки",
+
+  "titlebar.openConfig": "Открыть каталог конфига",
+  "titlebar.theme": "Переключить тему",
+  "titlebar.minimize": "Свернуть",
+  "titlebar.close": "Закрыть в трей",
+  "titlebar.closeHint": "Закрыть в трей — маршрутизация продолжит работать",
+
+  "app.loading": "Загрузка…",
+  "update.available": "Доступна версия {version}",
+  "update.install": "Обновить",
+
+  "status.connecting": "Подключаюсь…",
+  "status.disconnecting": "Отключаюсь…",
+  "status.on": "Работает",
+  "status.onTun": "Работает · TUN",
+  "status.off": "Выключено",
+  "status.allDirect": "весь трафик идёт напрямую",
+  "status.nothingRouted": "ничего не направлено через сервер — весь трафик идёт напрямую",
+  "status.routed": "{items} через {server} · остальное напрямую",
+  "status.join": "{a} и {b}",
+  "status.server": "сервер",
+  "status.toggle": "Включить маршрутизацию",
+  "count.apps": {
+    one: "{n} приложение",
+    few: "{n} приложения",
+    many: "{n} приложений",
+    other: "{n} приложения",
+  },
+  "count.domains": {
+    one: "{n} домен",
+    few: "{n} домена",
+    many: "{n} доменов",
+    other: "{n} домена",
+  },
+
+  "warn.proxyNotSet": "Ядро работает, но системный прокси не выставлен — трафик идёт напрямую.",
+  "warn.proxyOff":
+    "Системный прокси выключен: в Routeway попадёт только то, что ты направишь на 127.0.0.1:{port} вручную.",
+
+  "server.none": "Сервер не настроен",
+  "server.edit": "Изменить",
+  "server.setup": "Настроить",
+  "server.title": "Сервер",
+  "server.cancel": "Отменить",
+  "server.pasteLink": "Вставить ссылку",
+  "server.parse": "Разобрать",
+  "server.name": "Название",
+  "server.namePlaceholder": "Эстония",
+  "server.address": "Адрес",
+  "server.port": "Порт",
+  "server.save": "Сохранить сервер",
+  "server.needAddress": "Укажите адрес сервера",
+  "server.needUuid": "Укажите UUID",
+
+  "vless.empty": "Пустая строка",
+  "vless.scheme": "Ссылка должна начинаться с vless://",
+  "vless.parse": "Не удалось разобрать ссылку",
+  "vless.noUuid": "В ссылке нет UUID",
+  "vless.noAddress": "В ссылке нет адреса сервера",
+  "vless.badPort": "Некорректный порт",
+
+  "health.checking": "Проверяю…",
+  "health.ok": "Доступен",
+  "health.slow": "Медленно",
+  "health.down": "Нет ответа",
+  "health.modeTcp": "TCP до сервера",
+  "health.modeTunnel": "через туннель",
+  "health.ms": "{ms} мс",
+  "health.avg": "в ср. {ms} мс",
+  "health.loss": "потери {pct}%",
+
+  "log.title": "Журнал ядра",
+  "log.empty": "пусто",
+
+  "settings.general": "Общие",
+  "settings.routing": "Маршрутизация",
+  "settings.language": "Язык",
+  "settings.tun": "Режим TUN",
+  "settings.tunHint":
+    "Перехватывает трафик всех приложений, включая UDP и тех, кто игнорирует прокси. Нужны права администратора.",
+  "settings.proxy": "Системный прокси",
+  "settings.proxyTunHint": "Не нужен в режиме TUN.",
+  "settings.proxyHint": "Направляет трафик системы на 127.0.0.1:{port}.",
+  "settings.port": "Порт",
+  "settings.portHint": "Приложения ходят на 127.0.0.1:{port}, пробник занимает {probe}.",
+  "settings.portLocked": "Выключите маршрутизацию, чтобы сменить порт",
+  "settings.autostart": "Запускать при входе в систему",
+
+  "check.title": "Проверка",
+  "check.run": "Проверить IP",
+  "check.direct": "Напрямую",
+  "check.server": "Через сервер",
+
+  "rules.edit": "Редактировать как JSON",
+  "rules.title": "Файл правил",
+  "rules.hint": "Приложения и домены, которые идут через сервер, оба списка в одном файле. Вставляй сколько угодно записей — при сохранении они проверятся и почистятся.",
+  "rules.invalid": "Ошибка JSON: {error}",
+  "rules.notObject": "Файл должен быть объектом: { \"apps\": [], \"domains\": [] }",
+  "rules.save": "Сохранить",
+  "rules.reveal": "Показать в папке",
+
+  "list.empty": "список пуст",
+  "list.add": "Добавить",
+  "list.remove": "Убрать {item}",
+
+  "domains.title": "Домены через сервер",
+  "domains.rejected": "Не похоже на домен",
+  "domains.empty1": "Пока ни один домен не идёт через сервер.",
+  "domains.empty2": "Добавь домен — и только он пойдёт в туннель.",
+  "domains.footer": "Домен включает все поддомены: {a} покрывает и {b}.",
+
+  "apps.title": "Приложения через сервер",
+  "apps.rejected": "Не похоже на имя процесса",
+  "apps.empty1": "Пока ни одно приложение не привязано к серверу.",
+  "apps.empty2": "Добавь имя процесса — например {example}.",
+  "apps.footer":
+    "Имя процесса ({name}) или полный путь ({path}). Работает для приложений, чей трафик доходит до Routeway: при включённом системном прокси или для любых приложений в режиме TUN.",
+};
