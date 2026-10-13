@@ -108,13 +108,39 @@ pub fn normalize_domain(raw: &str) -> Option<String> {
     Some(value)
 }
 
-fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_config_dir()
         .map_err(|err| format!("не удалось определить каталог настроек: {err}"))?;
     fs::create_dir_all(&dir).map_err(|err| format!("не удалось создать {dir:?}: {err}"))?;
-    Ok(dir.join("settings.json"))
+    Ok(dir)
+}
+
+fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(config_dir(app)?.join("settings.json"))
+}
+
+/// Where the pre-Routeway system proxy configuration is parked while we own it.
+fn proxy_backup_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(config_dir(app)?.join("system-proxy-backup.json"))
+}
+
+pub fn has_proxy_backup(app: &AppHandle) -> bool {
+    proxy_backup_path(app).map(|p| p.exists()).unwrap_or(false)
+}
+
+pub fn save_proxy_backup(app: &AppHandle, raw: &str) -> Result<(), String> {
+    let path = proxy_backup_path(app)?;
+    fs::write(&path, raw).map_err(|err| format!("не удалось сохранить снимок прокси: {err}"))
+}
+
+/// Reads the snapshot and removes it — restoring is a one-shot operation.
+pub fn take_proxy_backup(app: &AppHandle) -> Option<String> {
+    let path = proxy_backup_path(app).ok()?;
+    let raw = fs::read_to_string(&path).ok()?;
+    let _ = fs::remove_file(&path);
+    Some(raw)
 }
 
 pub fn load(app: &AppHandle) -> Settings {

@@ -9,7 +9,125 @@
 mod imp {
     use std::process::Command;
 
+    use serde::{Deserialize, Serialize};
+
     const BYPASS: &str = "localhost 127.0.0.1 ::1 *.local";
+
+    /// What a single proxy slot looked like before Routeway touched it.
+    #[derive(Debug, Default, Serialize, Deserialize)]
+    struct Entry {
+        enabled: bool,
+        server: String,
+        port: u16,
+    }
+
+    #[derive(Debug, Default, Serialize, Deserialize)]
+    struct Snapshot {
+        service: String,
+        web: Entry,
+        secure: Entry,
+        socks: Entry,
+        bypass: Vec<String>,
+    }
+
+    fn read_entry(service: &str, getter: &str) -> Entry {
+        let Ok(out) = Command::new("/usr/sbin/networksetup")
+            .args([getter, service])
+            .output()
+        else {
+            return Entry::default();
+        };
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut entry = Entry::default();
+        for line in text.lines() {
+            let line = line.trim();
+            if let Some(v) = line.strip_prefix("Enabled:") {
+                entry.enabled = v.trim() == "Yes";
+            } else if let Some(v) = line.strip_prefix("Server:") {
+                entry.server = v.trim().to_string();
+            } else if let Some(v) = line.strip_prefix("Port:") {
+                entry.port = v.trim().parse().unwrap_or(0);
+            }
+        }
+        entry
+    }
+
+    fn read_bypass(service: &str) -> Vec<String> {
+        let Ok(out) = Command::new("/usr/sbin/networksetup")
+            .args(["-getproxybypassdomains", service])
+            .output()
+        else {
+            return Vec::new();
+        };
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| {
+                !l.is_empty()
+                    // networksetup reports absence as a sentence, not an empty list.
+                    && !l.starts_with("There aren't any")
+                    && !l.contains(' ')
+            })
+            .collect()
+    }
+
+    /// Records the current proxy configuration so it can be put back verbatim.
+    pub fn capture() -> Option<String> {
+        let service = primary_service().ok()?;
+        let snapshot = Snapshot {
+            web: read_entry(&service, "-getwebproxy"),
+            secure: read_entry(&service, "-getsecurewebproxy"),
+            socks: read_entry(&service, "-getsocksfirewallproxy"),
+            bypass: read_bypass(&service),
+            service,
+        };
+        serde_json::to_string(&snapshot).ok()
+    }
+
+    pub fn restore(raw: &str) -> Result<(), String> {
+        let snapshot: Snapshot = serde_json::from_str(raw)
+            .map_err(|err| format!("не удалось прочитать снимок настроек: {err}"))?;
+
+        // Prefer the service recorded in the snapshot, but fall back to whatever
+        // is primary now — the user may have switched Wi-Fi for Ethernet since.
+        let service = if snapshot.service.is_empty() {
+            primary_service()?
+        } else {
+            snapshot.service.clone()
+        };
+        if service.contains('\'') || service.contains('"') || service.contains('\\') {
+            return Err(format!("неподдерживаемое имя сетевого сервиса: {service}"));
+        }
+
+        let ns = "/usr/sbin/networksetup";
+        let mut parts: Vec<String> = Vec::new();
+        for (entry, set, state) in [
+            (&snapshot.web, "-setwebproxy", "-setwebproxystate"),
+            (&snapshot.secure, "-setsecurewebproxy", "-setsecurewebproxystate"),
+            (
+                &snapshot.socks,
+                "-setsocksfirewallproxy",
+                "-setsocksfirewallproxystate",
+            ),
+        ] {
+            if entry.enabled && !entry.server.is_empty() {
+                parts.push(format!(
+                    "{ns} {set} '{service}' {} {}",
+                    entry.server, entry.port
+                ));
+            } else {
+                parts.push(format!("{ns} {state} '{service}' off"));
+            }
+        }
+        let bypass = if snapshot.bypass.is_empty() {
+            "''".to_string()
+        } else {
+            snapshot.bypass.join(" ")
+        };
+        parts.push(format!("{ns} -setproxybypassdomains '{service}' {bypass}"));
+
+        run_as_admin(&parts.join(" && "))
+    }
 
     fn primary_service() -> Result<String, String> {
         let global = scutil("show State:/Network/Global/IPv4")?;
@@ -117,12 +235,6 @@ mod imp {
         enabled && right_port
     }
 
-    /// Whether any system proxy is set, regardless of which port it points at.
-    pub fn is_enabled() -> bool {
-        read_https_proxy()
-            .map(|text| text.lines().any(|l| l.trim() == "Enabled: Yes"))
-            .unwrap_or(false)
-    }
 }
 
 #[cfg(target_os = "windows")]
@@ -149,6 +261,38 @@ mod imp {
             InternetSetOptionW(std::ptr::null_mut(), INTERNET_OPTION_SETTINGS_CHANGED, std::ptr::null_mut(), 0);
             InternetSetOptionW(std::ptr::null_mut(), INTERNET_OPTION_REFRESH, std::ptr::null_mut(), 0);
         }
+    }
+
+    #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+    struct Snapshot {
+        enable: u32,
+        server: String,
+        bypass: String,
+    }
+
+    /// Records the current proxy configuration so it can be put back verbatim.
+    pub fn capture() -> Option<String> {
+        let key = open(KEY_READ).ok()?;
+        let snapshot = Snapshot {
+            enable: key.get_value("ProxyEnable").unwrap_or(0),
+            server: key.get_value("ProxyServer").unwrap_or_default(),
+            bypass: key.get_value("ProxyOverride").unwrap_or_default(),
+        };
+        serde_json::to_string(&snapshot).ok()
+    }
+
+    pub fn restore(raw: &str) -> Result<(), String> {
+        let snapshot: Snapshot = serde_json::from_str(raw)
+            .map_err(|err| format!("не удалось прочитать снимок настроек: {err}"))?;
+        let key = open(KEY_READ | KEY_WRITE)?;
+        key.set_value("ProxyServer", &snapshot.server)
+            .map_err(|err| format!("не удалось вернуть ProxyServer: {err}"))?;
+        key.set_value("ProxyOverride", &snapshot.bypass)
+            .map_err(|err| format!("не удалось вернуть ProxyOverride: {err}"))?;
+        key.set_value("ProxyEnable", &snapshot.enable)
+            .map_err(|err| format!("не удалось вернуть ProxyEnable: {err}"))?;
+        notify();
+        Ok(())
     }
 
     pub fn enable(port: u16) -> Result<(), String> {
@@ -180,13 +324,6 @@ mod imp {
         enabled == 1 && server == format!("127.0.0.1:{port}")
     }
 
-    /// Whether any system proxy is set, regardless of which port it points at.
-    pub fn is_enabled() -> bool {
-        let Ok(key) = open(KEY_READ) else {
-            return false;
-        };
-        key.get_value::<u32, _>("ProxyEnable").unwrap_or(0) == 1
-    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -200,9 +337,12 @@ mod imp {
     pub fn is_active(_port: u16) -> bool {
         false
     }
-    pub fn is_enabled() -> bool {
-        false
+    pub fn capture() -> Option<String> {
+        None
+    }
+    pub fn restore(_raw: &str) -> Result<(), String> {
+        Err("системный прокси поддерживается только на macOS и Windows".into())
     }
 }
 
-pub use imp::{disable, enable, is_active, is_enabled};
+pub use imp::{capture, disable, enable, is_active, restore};
