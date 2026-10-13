@@ -1,7 +1,9 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Plus, X } from "lucide-react";
+import { Braces, Plus, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { Card } from "./ui/card";
+import { useI18n } from "../i18n";
 
 interface ListEditorProps {
   title: string;
@@ -15,6 +17,7 @@ interface ListEditorProps {
   footer: ReactNode;
   /** Entries are shown sorted unless insertion order carries meaning. */
   sorted?: boolean;
+  onEditFile?: () => void;
 }
 
 export function ListEditor({
@@ -27,7 +30,9 @@ export function ListEditor({
   emptyHint,
   footer,
   sorted = true,
+  onEditFile,
 }: ListEditorProps) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -55,15 +60,29 @@ export function ListEditor({
   }
 
   return (
-    <section className="flex flex-col border border-border">
-      <header className="flex items-center justify-between border-b border-border px-3 py-2">
-        <h2 className="text-xs font-medium tracking-wide text-fg-muted uppercase">{title}</h2>
-        <span className="text-xs text-fg-muted/60">
-          {items.length === 0 ? "список пуст" : items.length}
+    <Card
+      title={title}
+      aside={
+        <span className="-mr-2 flex items-center gap-1">
+          <span className="text-xs text-fg-muted">
+            {items.length === 0 ? t("list.empty") : items.length}
+          </span>
+          {onEditFile ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              aria-label={t("rules.edit")}
+              title={t("rules.edit")}
+              onClick={onEditFile}
+            >
+              <Braces className="h-3.5 w-3.5" />
+            </Button>
+          ) : null}
         </span>
-      </header>
-
-      <div className="flex gap-2 border-b border-border px-3 py-3">
+      }
+    >
+      <div className="flex gap-2 border-b border-border px-4 py-3">
         <Input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -72,28 +91,28 @@ export function ListEditor({
           spellCheck={false}
           className="font-mono text-xs"
         />
-        <Button variant="outline" size="sm" className="shrink-0" onClick={add}>
+        <Button variant="outline" size="sm" className="h-9 shrink-0" onClick={add}>
           <Plus className="h-3.5 w-3.5" />
-          Добавить
+          {t("list.add")}
         </Button>
       </div>
 
-      {error ? <p className="px-3 pt-2 text-xs text-danger">{error}</p> : null}
+      {error ? <p className="border-b border-border px-4 py-2 text-xs text-danger">{error}</p> : null}
 
-      <div className="thin-scroll max-h-64 overflow-y-auto">
+      <div className="thin-scroll max-h-64 overflow-y-auto [scrollbar-gutter:auto]">
         {shown.length === 0 ? (
-          <p className="px-3 py-6 text-center text-xs text-fg-muted/60">{emptyHint}</p>
+          <p className="px-4 py-6 text-center text-xs leading-relaxed text-fg-muted">{emptyHint}</p>
         ) : (
           <ul>
             {shown.map((item) => (
               <li
                 key={item}
-                className="group flex items-center justify-between border-b border-border/50 px-3 py-1.5 last:border-b-0"
+                className="group flex h-9 items-center justify-between border-b border-border/60 px-4 last:border-b-0 hover:bg-bg-elevated/50"
               >
                 <span className="truncate font-mono text-xs text-fg">{item}</span>
                 <button
                   type="button"
-                  aria-label={`Убрать ${item}`}
+                  aria-label={t("list.remove", { item })}
                   className="shrink-0 pl-2 text-fg-muted/40 opacity-0 transition-opacity group-hover:opacity-100 hover:text-danger"
                   onClick={() => onChange(items.filter((i) => i !== item))}
                 >
@@ -105,9 +124,9 @@ export function ListEditor({
         )}
       </div>
 
-      <footer className="border-t border-border px-3 py-2 text-[11px] text-fg-muted/60">
+      <footer className="border-t border-border px-4 py-2.5 text-xs leading-relaxed text-fg-muted">
         {footer}
       </footer>
-    </section>
+    </Card>
   );
 }

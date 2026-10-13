@@ -1,4 +1,5 @@
 import { ListEditor } from "./ListEditor";
+import { useI18n } from "../i18n";
 
 /**
  * Process entries are either a bare executable name ("codex") or an absolute
@@ -16,30 +17,35 @@ export function normalizeProcess(raw: string): string | null {
 export function ProcessList({
   processes,
   onChange,
+  onEditFile,
 }: {
   processes: string[];
   onChange: (processes: string[]) => void;
+  onEditFile: () => void;
 }) {
+  const { t, rich } = useI18n();
   return (
     <ListEditor
-      title="Приложения через сервер"
+      title={t("apps.title")}
       placeholder="codex"
       items={processes}
       onChange={onChange}
+      onEditFile={onEditFile}
       normalize={normalizeProcess}
-      rejectedLabel="Не похоже на имя процесса"
+      rejectedLabel={t("apps.rejected")}
       emptyHint={
         <>
-          Пока ни одно приложение не привязано к серверу.
+          {t("apps.empty1")}
           <br />
-          Добавь имя процесса — например <span className="font-mono">codex</span>.
+          {rich("apps.empty2", { example: <span className="font-mono">codex</span> })}
         </>
       }
       footer={
         <>
-          Имя процесса (<span className="font-mono">codex</span>) или полный путь
-          (<span className="font-mono">/usr/bin/curl</span>). Работает для приложений, чей трафик
-          доходит до Routeway — то есть при включённом системном прокси.
+          {rich("apps.footer", {
+            name: <span className="font-mono">codex</span>,
+            path: <span className="font-mono">/usr/bin/curl</span>,
+          })}
         </>
       }
     />

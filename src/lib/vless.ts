@@ -1,3 +1,5 @@
+import type { Key } from "../i18n/en";
+
 export interface Server {
   label: string;
   address: string;
@@ -24,6 +26,12 @@ export function emptyServer(): Server {
   };
 }
 
+export class VlessError extends Error {
+  constructor(readonly key: Key) {
+    super(key);
+  }
+}
+
 /**
  * Parses a `vless://` share link into the fields Routeway stores.
  *
@@ -33,9 +41,9 @@ export function emptyServer(): Server {
  */
 export function parseVlessLink(input: string): Server {
   const raw = input.trim();
-  if (!raw) throw new Error("Пустая строка");
+  if (!raw) throw new VlessError("vless.empty");
   if (!raw.toLowerCase().startsWith("vless://")) {
-    throw new Error("Ссылка должна начинаться с vless://");
+    throw new VlessError("vless.scheme");
   }
 
   let url: URL;
@@ -43,18 +51,18 @@ export function parseVlessLink(input: string): Server {
     // URL understands the vless: scheme well enough once it has the // authority.
     url = new URL(raw);
   } catch {
-    throw new Error("Не удалось разобрать ссылку");
+    throw new VlessError("vless.parse");
   }
 
   const uuid = decodeURIComponent(url.username || "");
-  if (!uuid) throw new Error("В ссылке нет UUID");
+  if (!uuid) throw new VlessError("vless.noUuid");
 
   const address = url.hostname.replace(/^\[|\]$/g, "");
-  if (!address) throw new Error("В ссылке нет адреса сервера");
+  if (!address) throw new VlessError("vless.noAddress");
 
   const port = Number(url.port || "443");
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error("Некорректный порт");
+    throw new VlessError("vless.badPort");
   }
 
   const q = url.searchParams;

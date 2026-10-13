@@ -178,8 +178,8 @@ pub fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_config_dir()
-        .map_err(|err| format!("не удалось определить каталог настроек: {err}"))?;
-    fs::create_dir_all(&dir).map_err(|err| format!("не удалось создать {dir:?}: {err}"))?;
+        .map_err(|err| t!("err.config_dir", err = err))?;
+    fs::create_dir_all(&dir).map_err(|err| t!("err.create_dir", path = dir.display(), err = err))?;
     Ok(dir.join("sing-box.json"))
 }
 
@@ -187,8 +187,8 @@ pub fn write_config(app: &AppHandle, settings: &Settings) -> Result<PathBuf, Str
     let config = singbox::build_config(settings)?;
     let path = config_path(app)?;
     let body = serde_json::to_string_pretty(&config)
-        .map_err(|err| format!("не удалось сериализовать конфиг: {err}"))?;
-    fs::write(&path, body).map_err(|err| format!("не удалось записать конфиг: {err}"))?;
+        .map_err(|err| t!("err.serialize_config", err = err))?;
+    fs::write(&path, body).map_err(|err| t!("err.write_config", err = err))?;
     Ok(path)
 }
 
@@ -196,7 +196,7 @@ fn tun_paths(app: &AppHandle) -> Result<HostPaths, String> {
     let config = config_path(app)?;
     let dir = config
         .parent()
-        .ok_or_else(|| "не удалось определить каталог настроек".to_string())?;
+        .ok_or_else(|| t!("err.config_dir_plain"))?;
     Ok(HostPaths::in_dir(dir))
 }
 
@@ -209,9 +209,7 @@ async fn ensure_ports_free(settings: &Settings) -> Result<(), String> {
             .await
             .unwrap_or(false);
         if !free {
-            return Err(format!(
-                "порт {port} занят другим процессом — выберите другой порт в настройках"
-            ));
+            return Err(t!("err.port_busy", port = port));
         }
     }
     Ok(())
@@ -220,18 +218,18 @@ async fn ensure_ports_free(settings: &Settings) -> Result<(), String> {
 async fn await_ready(app: &AppHandle, port: u16, timeout: Duration) -> Result<(), String> {
     let ready = tauri::async_runtime::spawn_blocking(move || wait_until_listening(port, timeout))
         .await
-        .map_err(|err| format!("не удалось дождаться запуска ядра: {err}"))?;
+        .map_err(|err| t!("err.wait_core", err = err))?;
     if ready {
         return Ok(());
     }
     let log = app.state::<CoreState>().log_lines().join("\n");
     halt(app).await;
     let detail = if log.trim().is_empty() {
-        format!("порт {port} не открылся")
+        t!("err.port_not_opened", port = port)
     } else {
         log
     };
-    Err(format!("ядро не запустилось: {detail}"))
+    Err(t!("err.core_failed", detail = detail))
 }
 
 /// Stops any running core, regenerates the config and starts a fresh instance.
@@ -254,7 +252,7 @@ pub async fn reload_tun(app: &AppHandle, settings: &Settings) -> Result<(), Stri
     let paths = tun_paths(app)?;
     tauri::async_runtime::spawn_blocking(move || tunhost::request_reload(&paths))
         .await
-        .map_err(|err| format!("не удалось перезапустить ядро: {err}"))??;
+        .map_err(|err| t!("err.core_restart", err = err))??;
     await_ready(app, settings.listen_port, Duration::from_secs(15)).await
 }
 
@@ -262,16 +260,16 @@ async fn start_sidecar(app: &AppHandle, settings: &Settings) -> Result<(), Strin
     let config = config_path(app)?;
     let config_arg = config
         .to_str()
-        .ok_or_else(|| "путь к конфигу содержит недопустимые символы".to_string())?
+        .ok_or_else(|| t!("err.config_path_chars"))?
         .to_string();
 
     let (mut rx, child) = app
         .shell()
         .sidecar("sing-box")
-        .map_err(|err| format!("не удалось найти ядро sing-box: {err}"))?
+        .map_err(|err| t!("err.core_not_found", err = err))?
         .args(["run", "-c", &config_arg])
         .spawn()
-        .map_err(|err| format!("не удалось запустить ядро: {err}"))?;
+        .map_err(|err| t!("err.core_spawn", err = err))?;
 
     let pid = child.pid();
     {
@@ -298,7 +296,7 @@ async fn start_sidecar(app: &AppHandle, settings: &Settings) -> Result<(), Strin
                     if state.release(pid) {
                         forget_pid(&handle);
                     }
-                    let reason = format!("ядро остановилось (код {:?})", payload.code);
+                    let reason = t!("core.exited_code", code = format!("{:?}", payload.code));
                     state.push_log(reason.clone());
                     let _ = handle.emit("core-exit", reason);
                     break;
@@ -317,11 +315,11 @@ async fn start_tun(app: &AppHandle, settings: &Settings) -> Result<(), String> {
         .config
         .parent()
         .map(PathBuf::from)
-        .ok_or_else(|| "не удалось определить каталог настроек".to_string())?;
+        .ok_or_else(|| t!("err.config_dir_plain"))?;
 
     let host_pid = tauri::async_runtime::spawn_blocking(move || tunhost::launch(&dir))
         .await
-        .map_err(|err| format!("не удалось запустить ядро: {err}"))??;
+        .map_err(|err| t!("err.core_spawn", err = err))??;
 
     {
         let state = app.state::<CoreState>();
@@ -358,7 +356,7 @@ fn follow_tun_host(app: AppHandle, host_pid: u32, log: PathBuf) {
         if !tunhost::is_alive(host_pid) {
             publish(read_new_lines(&log, &mut offset, &mut partial));
             state.release(host_pid);
-            let reason = "ядро остановилось".to_string();
+            let reason = t!("core.exited");
             state.push_log(reason.clone());
             let _ = app.emit("core-exit", reason);
             return;

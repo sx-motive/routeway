@@ -30,6 +30,10 @@ fn default_fingerprint() -> String {
     "chrome".to_string()
 }
 
+fn default_language() -> String {
+    "en".to_string()
+}
+
 fn default_listen_port() -> u16 {
     2080
 }
@@ -53,6 +57,8 @@ pub struct Settings {
     pub system_proxy: bool,
     #[serde(default)]
     pub tun: bool,
+    #[serde(default = "default_language")]
+    pub language: String,
     #[serde(default)]
     pub autostart: bool,
 }
@@ -66,6 +72,7 @@ impl Default for Settings {
             listen_port: default_listen_port(),
             system_proxy: true,
             tun: false,
+            language: default_language(),
             autostart: false,
         }
     }
@@ -144,8 +151,8 @@ fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_config_dir()
-        .map_err(|err| format!("не удалось определить каталог настроек: {err}"))?;
-    fs::create_dir_all(&dir).map_err(|err| format!("не удалось создать {dir:?}: {err}"))?;
+        .map_err(|err| t!("err.config_dir", err = err))?;
+    fs::create_dir_all(&dir).map_err(|err| t!("err.create_dir", path = dir.display(), err = err))?;
     Ok(dir)
 }
 
@@ -164,7 +171,7 @@ pub fn has_proxy_backup(app: &AppHandle) -> bool {
 
 pub fn save_proxy_backup(app: &AppHandle, raw: &str) -> Result<(), String> {
     let path = proxy_backup_path(app)?;
-    fs::write(&path, raw).map_err(|err| format!("не удалось сохранить снимок прокси: {err}"))
+    fs::write(&path, raw).map_err(|err| t!("err.save_proxy_backup", err = err))
 }
 
 /// Reads the snapshot and removes it — restoring is a one-shot operation.
@@ -175,26 +182,152 @@ pub fn take_proxy_backup(app: &AppHandle) -> Option<String> {
     Some(raw)
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Rules {
+    #[serde(default)]
+    pub apps: Vec<String>,
+    #[serde(default)]
+    pub domains: Vec<String>,
+}
+
+impl Rules {
+    fn of(settings: &Settings) -> Self {
+        Self {
+            apps: settings.processes.clone(),
+            domains: settings.domains.clone(),
+        }
+    }
+
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let raw: Rules = serde_json::from_str(text).map_err(|err| {
+            t!(
+                "err.rules_json",
+                line = err.line(),
+                column = err.column(),
+                err = err
+            )
+        })?;
+
+        let mut domains: Vec<String> = Vec::new();
+        let mut rejected: Vec<String> = Vec::new();
+        for entry in &raw.domains {
+            match normalize_domain(entry) {
+                Some(domain) if !domains.contains(&domain) => domains.push(domain),
+                Some(_) => {}
+                None if entry.trim().is_empty() => {}
+                None => rejected.push(entry.trim().to_string()),
+            }
+        }
+        if !rejected.is_empty() {
+            return Err(t!("err.rules_domain", values = rejected.join(", ")));
+        }
+
+        let mut apps: Vec<String> = Vec::new();
+        for entry in &raw.apps {
+            let app = entry.trim().trim_matches(|c| c == '"' || c == '\'').to_string();
+            if !app.is_empty() && !apps.contains(&app) {
+                apps.push(app);
+            }
+        }
+
+        Ok(Self { apps, domains })
+    }
+
+    fn to_text(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".into())
+    }
+}
+
+fn rules_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(config_dir(app)?.join("rules.json"))
+}
+
+pub fn ensure_rules_file(app: &AppHandle) -> Result<PathBuf, String> {
+    let path = rules_path(app)?;
+    if !path.exists() {
+        save(app, &load(app))?;
+    }
+    Ok(path)
+}
+
+pub fn rules_text(app: &AppHandle) -> String {
+    rules_path(app)
+        .ok()
+        .and_then(|path| fs::read_to_string(path).ok())
+        .unwrap_or_else(|| Rules::of(&load(app)).to_text())
+}
+
+/// Rules live in their own file so they can be edited in bulk. Settings written
+/// before that existed still carry the lists inline, which is what a missing
+/// rules file falls back to.
 pub fn load(app: &AppHandle) -> Settings {
-    let Ok(path) = settings_path(app) else {
-        return Settings::default();
+    let mut settings = settings_path(app)
+        .ok()
+        .and_then(|path| fs::read_to_string(path).ok())
+        .and_then(|raw| serde_json::from_str::<Settings>(&raw).ok())
+        .unwrap_or_default();
+
+    let Ok(path) = rules_path(app) else {
+        return settings;
     };
-    let Ok(raw) = fs::read_to_string(path) else {
-        return Settings::default();
+    let Ok(raw) = fs::read_to_string(&path) else {
+        return settings;
     };
-    serde_json::from_str(&raw).unwrap_or_default()
+    match serde_json::from_str::<Rules>(&raw) {
+        Ok(rules) => {
+            settings.processes = rules.apps;
+            settings.domains = rules.domains;
+        }
+        Err(_) => {
+            // A hand-broken file would otherwise be overwritten by the next save.
+            let _ = fs::copy(&path, path.with_file_name("rules.invalid.json"));
+        }
+    }
+    settings
 }
 
 pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
+    let rules = rules_path(app)?;
+    fs::write(&rules, Rules::of(settings).to_text())
+        .map_err(|err| t!("err.write_file", path = rules.display(), err = err))?;
+
+    let stored = Settings {
+        processes: Vec::new(),
+        domains: Vec::new(),
+        ..settings.clone()
+    };
     let path = settings_path(app)?;
-    let body = serde_json::to_string_pretty(settings)
-        .map_err(|err| format!("не удалось сериализовать настройки: {err}"))?;
-    fs::write(&path, body).map_err(|err| format!("не удалось записать {path:?}: {err}"))
+    let body = serde_json::to_string_pretty(&stored)
+        .map_err(|err| t!("err.serialize_settings", err = err))?;
+    fs::write(&path, body).map_err(|err| t!("err.write_file", path = path.display(), err = err))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_domain;
+    use super::{normalize_domain, Rules};
+
+    #[test]
+    fn rules_normalize_and_dedupe() {
+        let rules = Rules::parse(
+            r#"{ "apps": [" codex ", "codex", ""], "domains": ["https://YouTube.com/x", "youtube.com", "  "] }"#,
+        )
+        .unwrap();
+        assert_eq!(rules.apps, vec!["codex"]);
+        assert_eq!(rules.domains, vec!["youtube.com"]);
+    }
+
+    #[test]
+    fn rules_reject_bad_json_with_position() {
+        let err = Rules::parse("{\n  \"domains\": [\"a.com\",]\n}").unwrap_err();
+        assert!(err.contains('2'), "{err}");
+    }
+
+    #[test]
+    fn rules_reject_junk_domains_and_unknown_keys() {
+        assert!(Rules::parse(r#"{ "domains": ["localhost"] }"#).is_err());
+        assert!(Rules::parse(r#"{ "domain": ["a.com"] }"#).is_err());
+    }
 
     #[test]
     fn strips_scheme_path_and_port() {

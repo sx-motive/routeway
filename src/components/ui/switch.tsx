@@ -9,12 +9,12 @@ export const Switch = forwardRef<
   <SwitchPrimitive.Root
     ref={ref}
     className={cn(
-      "peer inline-flex h-5 w-9 shrink-0 items-center border border-border bg-bg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-accent data-[state=checked]:border-accent",
+      "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center bg-fg-muted/25 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40 data-[state=checked]:bg-accent",
       className,
     )}
     {...props}
   >
-    <SwitchPrimitive.Thumb className="pointer-events-none block h-3 w-3 translate-x-1 bg-fg shadow transition-transform data-[state=checked]:translate-x-5 data-[state=checked]:bg-accent-fg" />
+    <SwitchPrimitive.Thumb className="pointer-events-none block h-3.5 w-3.5 translate-x-[3px] bg-fg-muted transition-transform data-[state=checked]:translate-x-[19px] data-[state=checked]:bg-accent-fg" />
   </SwitchPrimitive.Root>
 ));
 Switch.displayName = SwitchPrimitive.Root.displayName;

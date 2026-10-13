@@ -1,4 +1,5 @@
 import { ListEditor } from "./ListEditor";
+import { useI18n } from "../i18n";
 
 /** Mirrors the Rust-side normalizer so the UI shows what will actually be stored. */
 export function normalizeDomain(raw: string): string | null {
@@ -19,29 +20,35 @@ export function normalizeDomain(raw: string): string | null {
 export function DomainList({
   domains,
   onChange,
+  onEditFile,
 }: {
   domains: string[];
   onChange: (domains: string[]) => void;
+  onEditFile: () => void;
 }) {
+  const { t, rich } = useI18n();
   return (
     <ListEditor
-      title="Домены через сервер"
+      title={t("domains.title")}
       placeholder="youtube.com"
       items={domains}
       onChange={onChange}
+      onEditFile={onEditFile}
       normalize={normalizeDomain}
-      rejectedLabel="Не похоже на домен"
+      rejectedLabel={t("domains.rejected")}
       emptyHint={
         <>
-          Пока ни один домен не идёт через сервер.
+          {t("domains.empty1")}
           <br />
-          Добавь домен — и только он пойдёт в туннель.
+          {t("domains.empty2")}
         </>
       }
       footer={
         <>
-          Домен включает все поддомены: <span className="font-mono">youtube.com</span> покрывает и{" "}
-          <span className="font-mono">www.youtube.com</span>.
+          {rich("domains.footer", {
+            a: <span className="font-mono">youtube.com</span>,
+            b: <span className="font-mono">www.youtube.com</span>,
+          })}
         </>
       }
     />

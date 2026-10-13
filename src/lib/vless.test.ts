@@ -35,12 +35,12 @@ describe("parseVlessLink", () => {
   });
 
   it("rejects links that are not vless", () => {
-    expect(() => parseVlessLink("ss://whatever")).toThrow(/vless/i);
-    expect(() => parseVlessLink("   ")).toThrow(/Пустая/);
+    expect(() => parseVlessLink("ss://whatever")).toThrow("vless.scheme");
+    expect(() => parseVlessLink("   ")).toThrow("vless.empty");
   });
 
   it("rejects a link without a uuid", () => {
-    expect(() => parseVlessLink("vless://example.org:443")).toThrow(/UUID/);
+    expect(() => parseVlessLink("vless://example.org:443")).toThrow("vless.noUuid");
   });
 
   it("rejects an out-of-range port", () => {

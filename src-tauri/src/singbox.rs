@@ -12,13 +12,13 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
     let server = settings
         .server
         .as_ref()
-        .ok_or_else(|| "сервер не настроен".to_string())?;
+        .ok_or_else(|| t!("err.no_server"))?;
 
     if server.address.trim().is_empty() {
-        return Err("не указан адрес сервера".into());
+        return Err(t!("err.no_address"));
     }
     if server.uuid.trim().is_empty() {
-        return Err("не указан UUID".into());
+        return Err(t!("err.no_uuid"));
     }
 
     let domains = settings.normalized_domains();

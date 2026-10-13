@@ -2,7 +2,10 @@ import { useState } from "react";
 import { ClipboardPaste, Check, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { Field, Input } from "./ui/input";
-import { emptyServer, parseVlessLink, type Server } from "../lib/vless";
+import { Card } from "./ui/card";
+import { NumericInput } from "./ui/numeric-input";
+import { emptyServer, parseVlessLink, VlessError, type Server } from "../lib/vless";
+import { useI18n } from "../i18n";
 
 interface ServerCardProps {
   server: Server | null;
@@ -10,6 +13,7 @@ interface ServerCardProps {
 }
 
 export function ServerCard({ server, onChange }: ServerCardProps) {
+  const { t } = useI18n();
   const [editing, setEditing] = useState(server === null);
   const [draft, setDraft] = useState<Server>(server ?? emptyServer());
   const [link, setLink] = useState("");
@@ -21,13 +25,13 @@ export function ServerCard({ server, onChange }: ServerCardProps) {
       setDraft(parsed);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof VlessError ? t(err.key) : String(err));
     }
   }
 
   function save() {
-    if (!draft.address.trim()) return setError("Укажите адрес сервера");
-    if (!draft.uuid.trim()) return setError("Укажите UUID");
+    if (!draft.address.trim()) return setError(t("server.needAddress"));
+    if (!draft.uuid.trim()) return setError(t("server.needUuid"));
     setError(null);
     onChange({ ...draft, label: draft.label.trim() || draft.address.trim() });
     setEditing(false);
@@ -35,37 +39,39 @@ export function ServerCard({ server, onChange }: ServerCardProps) {
 
   if (!editing && server) {
     return (
-      <section className="border border-border">
-        <header className="flex items-center justify-between border-b border-border px-3 py-2">
-          <h2 className="text-xs font-medium tracking-wide text-fg-muted uppercase">Сервер</h2>
-          <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-            Изменить
+      <Card
+        title={t("server.title")}
+        aside={
+          <Button variant="ghost" size="sm" className="-mr-2 h-7" onClick={() => setEditing(true)}>
+            {t("server.edit")}
           </Button>
-        </header>
-        <div className="flex items-baseline gap-3 px-3 py-3">
-          <span className="text-sm text-fg">{server.label}</span>
-          <span className="font-mono text-xs text-fg-muted">
+        }
+      >
+        <div className="flex min-h-14 items-center gap-3 px-4 py-3">
+          <span className="truncate text-sm text-fg">{server.label}</span>
+          <span className="truncate font-mono text-xs text-fg-muted">
             {server.address}:{server.port}
           </span>
           {server.public_key ? (
-            <span className="border border-border px-1.5 py-0.5 text-[10px] tracking-wide text-fg-muted uppercase">
+            <span className="ml-auto shrink-0 border border-border px-1.5 py-0.5 text-[10px] tracking-wider text-fg-muted uppercase">
               reality
             </span>
           ) : null}
         </div>
-      </section>
+      </Card>
     );
   }
 
   return (
-    <section className="border border-border">
-      <header className="flex items-center justify-between border-b border-border px-3 py-2">
-        <h2 className="text-xs font-medium tracking-wide text-fg-muted uppercase">Сервер</h2>
-        {server ? (
+    <Card
+      title={t("server.title")}
+      aside={
+        server ? (
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Отменить"
+            className="-mr-2 h-7 w-7"
+            aria-label={t("server.cancel")}
             onClick={() => {
               setDraft(server);
               setEditing(false);
@@ -74,11 +80,11 @@ export function ServerCard({ server, onChange }: ServerCardProps) {
           >
             <X className="h-3.5 w-3.5" />
           </Button>
-        ) : null}
-      </header>
-
-      <div className="flex flex-col gap-3 px-3 py-3">
-        <Field label="Вставить ссылку" hint="vless://…">
+        ) : null
+      }
+    >
+      <div className="flex flex-col gap-4 px-4 py-4">
+        <Field label={t("server.pasteLink")} hint="vless://…">
           <div className="flex gap-2">
             <Input
               value={link}
@@ -88,22 +94,22 @@ export function ServerCard({ server, onChange }: ServerCardProps) {
               spellCheck={false}
               className="font-mono text-xs"
             />
-            <Button variant="outline" size="sm" className="shrink-0" onClick={applyLink}>
+            <Button variant="outline" size="sm" className="h-9 shrink-0" onClick={applyLink}>
               <ClipboardPaste className="h-3.5 w-3.5" />
-              Разобрать
+              {t("server.parse")}
             </Button>
           </div>
         </Field>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Название">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-4">
+          <Field label={t("server.name")}>
             <Input
               value={draft.label}
               onChange={(e) => setDraft({ ...draft, label: e.target.value })}
-              placeholder="Эстония"
+              placeholder={t("server.namePlaceholder")}
             />
           </Field>
-          <Field label="Адрес">
+          <Field label={t("server.address")}>
             <Input
               value={draft.address}
               onChange={(e) => setDraft({ ...draft, address: e.target.value })}
@@ -112,11 +118,12 @@ export function ServerCard({ server, onChange }: ServerCardProps) {
               className="font-mono text-xs"
             />
           </Field>
-          <Field label="Порт">
-            <Input
-              type="number"
+          <Field label={t("server.port")}>
+            <NumericInput
+              min={1}
+              max={65535}
               value={draft.port}
-              onChange={(e) => setDraft({ ...draft, port: Number(e.target.value) })}
+              onValueChange={(port) => setDraft({ ...draft, port })}
               className="font-mono text-xs"
             />
           </Field>
@@ -167,12 +174,12 @@ export function ServerCard({ server, onChange }: ServerCardProps) {
         {error ? <p className="text-xs text-danger">{error}</p> : null}
 
         <div className="flex justify-end">
-          <Button size="sm" onClick={save}>
+          <Button size="sm" className="h-9" onClick={save}>
             <Check className="h-3.5 w-3.5" />
-            Сохранить сервер
+            {t("server.save")}
           </Button>
         </div>
       </div>
-    </section>
+    </Card>
   );
 }
