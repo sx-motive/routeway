@@ -66,6 +66,17 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
     ];
     let mut dns_rules: Vec<Value> = Vec::new();
 
+    // Process rules come before domain rules: "this app always goes through the
+    // server" is a stronger statement than "this domain does".
+    let (process_names, process_paths) = settings.process_rules();
+    let has_process_rules = !process_names.is_empty() || !process_paths.is_empty();
+    if !process_names.is_empty() {
+        route_rules.push(json!({ "process_name": process_names, "outbound": "proxy" }));
+    }
+    if !process_paths.is_empty() {
+        route_rules.push(json!({ "process_path": process_paths, "outbound": "proxy" }));
+    }
+
     if !domains.is_empty() {
         route_rules.push(json!({ "domain_suffix": domains, "outbound": "proxy" }));
         // Resolve proxied names through the tunnel so a poisoned local resolver
@@ -104,7 +115,10 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
         "route": {
             "rules": route_rules,
             "final": "direct",
-            "default_domain_resolver": "dns-direct"
+            "default_domain_resolver": "dns-direct",
+            // Looking up the owning process costs a syscall per connection, so
+            // only ask for it when a rule actually depends on it.
+            "find_process": has_process_rules
         }
     }))
 }
@@ -180,6 +194,33 @@ mod tests {
         settings.server.as_mut().unwrap().public_key = String::new();
         let cfg = build_config(&settings).unwrap();
         assert!(cfg["outbounds"][0]["tls"]["reality"].is_null());
+    }
+
+    #[test]
+    fn process_rules_split_by_shape_and_outrank_domains() {
+        let mut settings = settings_with(&["youtube.com"]);
+        settings.processes = vec!["codex".into(), "/usr/bin/curl".into(), "claude".into()];
+        let cfg = build_config(&settings).unwrap();
+
+        assert_eq!(cfg["route"]["find_process"], true);
+        let rules = cfg["route"]["rules"].as_array().unwrap();
+
+        let by_name = rules.iter().position(|r| !r["process_name"].is_null()).unwrap();
+        let by_path = rules.iter().position(|r| !r["process_path"].is_null()).unwrap();
+        let by_domain = rules.iter().position(|r| !r["domain_suffix"].is_null()).unwrap();
+
+        assert_eq!(rules[by_name]["process_name"][0], "codex");
+        assert_eq!(rules[by_name]["process_name"][1], "claude");
+        assert_eq!(rules[by_path]["process_path"][0], "/usr/bin/curl");
+        assert!(by_name < by_domain && by_path < by_domain);
+    }
+
+    #[test]
+    fn process_lookup_stays_off_when_no_process_rules_exist() {
+        let cfg = build_config(&settings_with(&["youtube.com"])).unwrap();
+        assert_eq!(cfg["route"]["find_process"], false);
+        let rules = cfg["route"]["rules"].as_array().unwrap();
+        assert!(rules.iter().all(|r| r["process_name"].is_null()));
     }
 
     #[test]

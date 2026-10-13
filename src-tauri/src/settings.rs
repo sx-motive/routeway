@@ -41,6 +41,11 @@ pub struct Settings {
     /// Domains routed through the server. Everything else stays direct.
     #[serde(default)]
     pub domains: Vec<String>,
+    /// Processes routed through the server, by executable name ("codex") or by
+    /// full path ("/usr/bin/curl"). Matching works for any traffic that reaches
+    /// our local inbound — no TUN and no elevated privileges required.
+    #[serde(default)]
+    pub processes: Vec<String>,
     #[serde(default = "default_listen_port")]
     pub listen_port: u16,
     /// Whether the system proxy should point at us while the core runs.
@@ -55,6 +60,7 @@ impl Default for Settings {
         Self {
             server: None,
             domains: Vec::new(),
+            processes: Vec::new(),
             listen_port: default_listen_port(),
             system_proxy: true,
             autostart: false,
@@ -75,6 +81,29 @@ impl Settings {
             }
         }
         out
+    }
+
+    /// Process entries split into the two shapes sing-box matches on: bare
+    /// executable names and absolute paths.
+    pub fn process_rules(&self) -> (Vec<String>, Vec<String>) {
+        let mut names: Vec<String> = Vec::new();
+        let mut paths: Vec<String> = Vec::new();
+        for raw in &self.processes {
+            let value = raw.trim();
+            if value.is_empty() || value.starts_with('#') {
+                continue;
+            }
+            let target = if value.contains('/') || value.contains('\\') {
+                &mut paths
+            } else {
+                &mut names
+            };
+            let value = value.to_string();
+            if !target.contains(&value) {
+                target.push(value);
+            }
+        }
+        (names, paths)
     }
 }
 

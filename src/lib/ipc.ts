@@ -4,6 +4,7 @@ import type { Server } from "./vless";
 export interface Settings {
   server: Server | null;
   domains: string[];
+  processes: string[];
   listen_port: number;
   system_proxy: boolean;
   autostart: boolean;
