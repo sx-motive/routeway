@@ -197,6 +197,31 @@ export function App() {
           <div className="flex flex-col gap-2 border-t border-border px-3 py-2.5">
             <label className="flex items-center justify-between gap-3">
               <span className="text-xs text-fg-muted">
+                Порт
+                <span className="text-fg-muted/60">
+                  {" "}
+                  · приложения ходят на 127.0.0.1:{settings.listen_port}, пробник занимает{" "}
+                  {settings.listen_port + 1}
+                </span>
+              </span>
+              <input
+                type="number"
+                min={1025}
+                max={65534}
+                value={settings.listen_port}
+                disabled={running}
+                title={running ? "Выключите маршрутизацию, чтобы сменить порт" : undefined}
+                onChange={(e) => {
+                  const port = Number(e.target.value);
+                  if (port >= 1025 && port <= 65534) {
+                    void persist({ ...settings, listen_port: port });
+                  }
+                }}
+                className="h-7 w-24 border border-border bg-bg px-2 text-right font-mono text-xs text-fg focus-visible:border-accent focus-visible:outline-none disabled:opacity-50"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-xs text-fg-muted">
                 Системный прокси
                 <span className="text-fg-muted/60">
                   {" "}
@@ -220,6 +245,13 @@ export function App() {
             {running && settings.system_proxy && !system_proxy_active ? (
               <p className="text-xs text-warn">
                 Ядро работает, но системный прокси не выставлен — трафик идёт напрямую.
+              </p>
+            ) : null}
+            {running && !settings.system_proxy ? (
+              <p className="text-xs text-fg-muted/70">
+                Системный прокси выключен: в Routeway попадёт только то, что ты направишь на
+                127.0.0.1:{settings.listen_port} вручную — например через переменные окружения.
+                Остальные приложения о нём не знают.
               </p>
             ) : null}
           </div>

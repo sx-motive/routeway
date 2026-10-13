@@ -261,6 +261,9 @@ pub fn run() {
             reveal_config
         ])
         .setup(|app| {
+            // A previous run that was killed rather than quit leaves its core
+            // holding the port; clear it before anything else needs that port.
+            core::reap_orphan(app.handle());
             build_tray(app.handle())?;
             // A tray app can end up launched without its window surfacing (the
             // process starts in the background and the window never activates).

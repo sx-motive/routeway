@@ -56,6 +56,81 @@ impl CoreState {
     }
 }
 
+fn pid_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(config_path(app)?.with_file_name("core.pid"))
+}
+
+/// The core is a child process, but an app that is killed (rather than quit)
+/// leaves it running and holding the port. Recording its pid lets the next
+/// launch clean up after the previous one.
+fn remember_pid(app: &AppHandle, pid: u32) {
+    if let Ok(path) = pid_path(app) {
+        let _ = fs::write(path, pid.to_string());
+    }
+}
+
+fn forget_pid(app: &AppHandle) {
+    if let Ok(path) = pid_path(app) {
+        let _ = fs::remove_file(path);
+    }
+}
+
+/// Kills a core left behind by a previous run, if the recorded pid still points
+/// at one. Checking the process name first avoids killing an unrelated process
+/// that happens to have inherited the pid.
+pub fn reap_orphan(app: &AppHandle) {
+    let Ok(path) = pid_path(app) else { return };
+    let Ok(raw) = fs::read_to_string(&path) else {
+        return;
+    };
+    let _ = fs::remove_file(&path);
+    let Ok(pid) = raw.trim().parse::<u32>() else {
+        return;
+    };
+
+    if !is_our_core(pid) {
+        return;
+    }
+
+    #[cfg(windows)]
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/F"])
+        .output();
+
+    #[cfg(not(windows))]
+    let _ = std::process::Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .output();
+}
+
+fn is_our_core(pid: u32) -> bool {
+    #[cfg(windows)]
+    {
+        let Ok(out) = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .output()
+        else {
+            return false;
+        };
+        String::from_utf8_lossy(&out.stdout).contains("sing-box")
+    }
+    #[cfg(not(windows))]
+    {
+        let Ok(out) = std::process::Command::new("ps")
+            .args(["-o", "comm=", "-p", &pid.to_string()])
+            .output()
+        else {
+            return false;
+        };
+        String::from_utf8_lossy(&out.stdout).contains("sing-box")
+    }
+}
+
+/// True when nothing is listening on the port, i.e. we can claim it.
+fn port_is_free(port: u16) -> bool {
+    std::net::TcpListener::bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))).is_ok()
+}
+
 pub fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -77,6 +152,21 @@ pub fn write_config(app: &AppHandle, settings: &Settings) -> Result<PathBuf, Str
 /// Stops any running core, regenerates the config and starts a fresh instance.
 pub async fn start(app: &AppHandle, settings: &Settings) -> Result<(), String> {
     stop(app);
+    reap_orphan(app);
+
+    // Claiming the port must be verified *before* spawning: otherwise a stale
+    // listener makes the readiness check below succeed against someone else's
+    // socket while our core dies with "address already in use".
+    for port in [settings.listen_port, settings.listen_port + 1] {
+        let free = tauri::async_runtime::spawn_blocking(move || port_is_free(port))
+            .await
+            .unwrap_or(false);
+        if !free {
+            return Err(format!(
+                "порт {port} занят другим процессом — выберите другой порт в настройках"
+            ));
+        }
+    }
 
     let config = write_config(app, settings)?;
     let config_arg = config
@@ -94,6 +184,7 @@ pub async fn start(app: &AppHandle, settings: &Settings) -> Result<(), String> {
 
     {
         let state = app.state::<CoreState>();
+        remember_pid(app, child.pid());
         state.set_child(Some(child));
         state.clear_log();
     }
@@ -113,6 +204,7 @@ pub async fn start(app: &AppHandle, settings: &Settings) -> Result<(), String> {
                 }
                 CommandEvent::Terminated(payload) => {
                     state.set_child(None);
+                    forget_pid(&handle);
                     let reason = format!("ядро остановилось (код {:?})", payload.code);
                     state.push_log(reason.clone());
                     let _ = handle.emit("core-exit", reason);
@@ -146,6 +238,7 @@ pub fn stop(app: &AppHandle) {
     if let Some(child) = app.state::<CoreState>().take_child() {
         let _ = child.kill();
     }
+    forget_pid(app);
 }
 
 fn wait_until_listening(port: u16) -> bool {
