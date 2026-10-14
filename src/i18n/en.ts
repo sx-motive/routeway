@@ -112,9 +112,9 @@ export const en = {
 
   "rules.edit": "Edit as JSON",
   "rules.title": "Rules file",
-  "rules.hint": "Apps and domains that go through the server, both lists in one file. Paste as many entries as you need — they are checked and cleaned up on save.",
+  "rules.hint": "Apps and domains that go through the server, plus domains that always stay direct, all in one file. Paste as many entries as you need — they are checked and cleaned up on save.",
   "rules.invalid": "Invalid JSON: {error}",
-  "rules.notObject": "The file must be an object: { \"apps\": [], \"domains\": [] }",
+  "rules.notObject": "The file must be an object: { \"apps\": [], \"domains\": [], \"direct\": [] }",
   "rules.save": "Save",
   "rules.reveal": "Show in folder",
 
@@ -127,6 +127,11 @@ export const en = {
   "domains.empty1": "No domain goes through the server yet.",
   "domains.empty2": "Add a domain and only it will go through the tunnel.",
   "domains.footer": "A domain includes all its subdomains: {a} also covers {b}.",
+
+  "direct.title": "Always direct",
+  "direct.empty1": "No domain is excluded from Routeway.",
+  "direct.empty2": "Add internal sites that only open through a corporate VPN.",
+  "direct.footer": "Apps open these sites themselves, bypassing Routeway, so the VPN's DNS and routes apply. {a} also covers its subdomains.",
 
   "apps.title": "Apps via server",
   "apps.rejected": "Doesn't look like a process name",

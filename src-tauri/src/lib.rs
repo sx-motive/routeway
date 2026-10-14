@@ -78,6 +78,7 @@ async fn save_rules(app: AppHandle, text: String) -> Result<Status, String> {
     let mut settings = settings::load(&app);
     settings.processes = rules.apps;
     settings.domains = rules.domains;
+    settings.direct = rules.direct;
     apply(&app, settings).await
 }
 
@@ -115,14 +116,15 @@ async fn reconcile_system_proxy(app: &AppHandle, settings: &Settings) -> Result<
     let port = settings.listen_port;
 
     if settings.system_proxy && !settings.tun {
-        // `is_active` is port-specific, so a changed port reads as "not active"
-        // and gets re-pointed at the new one.
-        let active = tauri::async_runtime::spawn_blocking(move || sysproxy::is_active(port))
+        // A changed port or direct list reads as "not current" and gets rewritten.
+        let direct = settings.normalized_direct();
+        let probe = direct.clone();
+        let current = tauri::async_runtime::spawn_blocking(move || sysproxy::is_current(port, &probe))
             .await
             .unwrap_or(false);
-        if !active {
+        if !current {
             snapshot_system_proxy(app, port).await;
-            return tauri::async_runtime::spawn_blocking(move || sysproxy::enable(port))
+            return tauri::async_runtime::spawn_blocking(move || sysproxy::enable(port, &direct))
                 .await
                 .map_err(|err| t!("err.apply_proxy", err = err))?;
         }
@@ -184,7 +186,8 @@ async fn connect(app: AppHandle) -> Result<Status, String> {
     } else if settings.system_proxy {
         let port = settings.listen_port;
         snapshot_system_proxy(&app, port).await;
-        let result = tauri::async_runtime::spawn_blocking(move || sysproxy::enable(port))
+        let direct = settings.normalized_direct();
+        let result = tauri::async_runtime::spawn_blocking(move || sysproxy::enable(port, &direct))
             .await
             .map_err(|err| t!("err.apply_proxy", err = err))?;
         if let Err(err) = result {

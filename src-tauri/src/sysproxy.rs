@@ -194,16 +194,36 @@ mod imp {
         Err(t!("err.change_proxy", err = stderr.trim()))
     }
 
-    pub fn enable(port: u16) -> Result<(), String> {
+    fn bypass(direct: &[String]) -> Vec<String> {
+        BYPASS
+            .split(' ')
+            .map(str::to_string)
+            .chain(super::direct_patterns(direct))
+            .collect()
+    }
+
+    pub fn enable(port: u16, direct: &[String]) -> Result<(), String> {
         let service = primary_service()?;
         let ns = "/usr/sbin/networksetup";
+        let bypass = bypass(direct)
+            .iter()
+            .map(|entry| format!("'{entry}'"))
+            .collect::<Vec<_>>()
+            .join(" ");
         let command = format!(
             "{ns} -setwebproxy '{service}' 127.0.0.1 {port} && \
              {ns} -setsecurewebproxy '{service}' 127.0.0.1 {port} && \
              {ns} -setsocksfirewallproxy '{service}' 127.0.0.1 {port} && \
-             {ns} -setproxybypassdomains '{service}' {BYPASS}"
+             {ns} -setproxybypassdomains '{service}' {bypass}"
         );
         run_as_admin(&command)
+    }
+
+    pub fn is_current(port: u16, direct: &[String]) -> bool {
+        let Ok(service) = primary_service() else {
+            return false;
+        };
+        is_active(port) && read_bypass(&service) == bypass(direct)
     }
 
     pub fn disable() -> Result<(), String> {
@@ -295,11 +315,19 @@ mod imp {
         Ok(())
     }
 
-    pub fn enable(port: u16) -> Result<(), String> {
+    fn bypass(direct: &[String]) -> String {
+        super::direct_patterns(direct)
+            .into_iter()
+            .chain(std::iter::once(BYPASS.to_string()))
+            .collect::<Vec<_>>()
+            .join(";")
+    }
+
+    pub fn enable(port: u16, direct: &[String]) -> Result<(), String> {
         let key = open(KEY_READ | KEY_WRITE)?;
         key.set_value("ProxyServer", &format!("127.0.0.1:{port}"))
             .map_err(|err| t!("err.registry_write", name = "ProxyServer", err = err))?;
-        key.set_value("ProxyOverride", &BYPASS.to_string())
+        key.set_value("ProxyOverride", &bypass(direct))
             .map_err(|err| t!("err.registry_write", name = "ProxyOverride", err = err))?;
         key.set_value("ProxyEnable", &1u32)
             .map_err(|err| t!("err.registry_write", name = "ProxyEnable", err = err))?;
@@ -324,17 +352,28 @@ mod imp {
         enabled == 1 && server == format!("127.0.0.1:{port}")
     }
 
+    pub fn is_current(port: u16, direct: &[String]) -> bool {
+        let Ok(key) = open(KEY_READ) else {
+            return false;
+        };
+        let bypass_now: String = key.get_value("ProxyOverride").unwrap_or_default();
+        is_active(port) && bypass_now == bypass(direct)
+    }
+
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod imp {
-    pub fn enable(_port: u16) -> Result<(), String> {
+    pub fn enable(_port: u16, _direct: &[String]) -> Result<(), String> {
         Err(t!("err.proxy_unsupported"))
     }
     pub fn disable() -> Result<(), String> {
         Err(t!("err.proxy_unsupported"))
     }
     pub fn is_active(_port: u16) -> bool {
+        false
+    }
+    pub fn is_current(_port: u16, _direct: &[String]) -> bool {
         false
     }
     pub fn capture() -> Option<String> {
@@ -345,4 +384,25 @@ mod imp {
     }
 }
 
-pub use imp::{capture, disable, enable, is_active, restore};
+pub use imp::{capture, disable, enable, is_active, is_current, restore};
+
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+fn direct_patterns(direct: &[String]) -> Vec<String> {
+    direct
+        .iter()
+        .flat_map(|domain| [domain.clone(), format!("*.{domain}")])
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::direct_patterns;
+
+    #[test]
+    fn direct_domain_bypasses_itself_and_subdomains() {
+        assert_eq!(
+            direct_patterns(&["argustelecom.ru".into()]),
+            vec!["argustelecom.ru", "*.argustelecom.ru"]
+        );
+    }
+}
