@@ -9,6 +9,7 @@ import {
 import { TitleBar, type Tab } from "./components/TitleBar";
 import { ServerCard } from "./components/ServerCard";
 import { DomainList } from "./components/DomainList";
+import { DirectList } from "./components/DirectList";
 import { ProcessList } from "./components/ProcessList";
 import { RulesDialog } from "./components/RulesDialog";
 import { ServerStatus } from "./components/ServerStatus";
@@ -366,6 +367,12 @@ export function App() {
           <DomainList
             domains={settings.domains}
             onChange={(domains) => void persist({ ...settings, domains })}
+            onEditFile={() => setRulesOpen(true)}
+          />
+
+          <DirectList
+            domains={settings.direct}
+            onChange={(direct) => void persist({ ...settings, direct })}
             onEditFile={() => setRulesOpen(true)}
           />
 

@@ -50,6 +50,10 @@ pub struct Settings {
     /// our local inbound — no TUN and no elevated privileges required.
     #[serde(default)]
     pub processes: Vec<String>,
+    /// Domains that must never reach the core, e.g. split-horizon corporate names
+    /// that resolve to internal addresses only through the VPN's own DNS.
+    #[serde(default)]
+    pub direct: Vec<String>,
     #[serde(default = "default_listen_port")]
     pub listen_port: u16,
     /// Whether the system proxy should point at us while the core runs.
@@ -69,6 +73,7 @@ impl Default for Settings {
             server: None,
             domains: Vec::new(),
             processes: Vec::new(),
+            direct: Vec::new(),
             listen_port: default_listen_port(),
             system_proxy: true,
             tun: false,
@@ -82,15 +87,11 @@ impl Settings {
     /// Domains cleaned up for use as sing-box `domain_suffix` entries: trimmed,
     /// lowercased, scheme/path/leading-dot stripped, deduplicated.
     pub fn normalized_domains(&self) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
-        for raw in &self.domains {
-            if let Some(domain) = normalize_domain(raw) {
-                if !out.contains(&domain) {
-                    out.push(domain);
-                }
-            }
-        }
-        out
+        normalize_domains(&self.domains)
+    }
+
+    pub fn normalized_direct(&self) -> Vec<String> {
+        normalize_domains(&self.direct)
     }
 
     /// Process entries split into the two shapes sing-box matches on: bare
@@ -115,6 +116,18 @@ impl Settings {
         }
         (names, paths)
     }
+}
+
+fn normalize_domains(raw: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for entry in raw {
+        if let Some(domain) = normalize_domain(entry) {
+            if !out.contains(&domain) {
+                out.push(domain);
+            }
+        }
+    }
+    out
 }
 
 pub fn normalize_domain(raw: &str) -> Option<String> {
@@ -189,6 +202,8 @@ pub struct Rules {
     pub apps: Vec<String>,
     #[serde(default)]
     pub domains: Vec<String>,
+    #[serde(default)]
+    pub direct: Vec<String>,
 }
 
 impl Rules {
@@ -196,6 +211,7 @@ impl Rules {
         Self {
             apps: settings.processes.clone(),
             domains: settings.domains.clone(),
+            direct: settings.direct.clone(),
         }
     }
 
@@ -209,16 +225,9 @@ impl Rules {
             )
         })?;
 
-        let mut domains: Vec<String> = Vec::new();
         let mut rejected: Vec<String> = Vec::new();
-        for entry in &raw.domains {
-            match normalize_domain(entry) {
-                Some(domain) if !domains.contains(&domain) => domains.push(domain),
-                Some(_) => {}
-                None if entry.trim().is_empty() => {}
-                None => rejected.push(entry.trim().to_string()),
-            }
-        }
+        let domains = parse_domains(&raw.domains, &mut rejected);
+        let direct = parse_domains(&raw.direct, &mut rejected);
         if !rejected.is_empty() {
             return Err(t!("err.rules_domain", values = rejected.join(", ")));
         }
@@ -231,12 +240,25 @@ impl Rules {
             }
         }
 
-        Ok(Self { apps, domains })
+        Ok(Self { apps, domains, direct })
     }
 
     fn to_text(&self) -> String {
         serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".into())
     }
+}
+
+fn parse_domains(raw: &[String], rejected: &mut Vec<String>) -> Vec<String> {
+    let mut domains: Vec<String> = Vec::new();
+    for entry in raw {
+        match normalize_domain(entry) {
+            Some(domain) if !domains.contains(&domain) => domains.push(domain),
+            Some(_) => {}
+            None if entry.trim().is_empty() => {}
+            None => rejected.push(entry.trim().to_string()),
+        }
+    }
+    domains
 }
 
 fn rules_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -278,6 +300,7 @@ pub fn load(app: &AppHandle) -> Settings {
         Ok(rules) => {
             settings.processes = rules.apps;
             settings.domains = rules.domains;
+            settings.direct = rules.direct;
         }
         Err(_) => {
             // A hand-broken file would otherwise be overwritten by the next save.
@@ -295,6 +318,7 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
     let stored = Settings {
         processes: Vec::new(),
         domains: Vec::new(),
+        direct: Vec::new(),
         ..settings.clone()
     };
     let path = settings_path(app)?;
@@ -315,6 +339,17 @@ mod tests {
         .unwrap();
         assert_eq!(rules.apps, vec!["codex"]);
         assert_eq!(rules.domains, vec!["youtube.com"]);
+    }
+
+    #[test]
+    fn direct_list_is_optional_and_normalized() {
+        let rules = Rules::parse(
+            r#"{ "direct": ["https://Jira.ArgusTelecom.ru/browse/X", "jira.argustelecom.ru"] }"#,
+        )
+        .unwrap();
+        assert_eq!(rules.direct, vec!["jira.argustelecom.ru"]);
+        assert!(Rules::parse(r#"{ "domains": [] }"#).unwrap().direct.is_empty());
+        assert!(Rules::parse(r#"{ "direct": ["intranet"] }"#).is_err());
     }
 
     #[test]

@@ -106,9 +106,9 @@ export const zh: Dict = {
 
   "rules.edit": "以 JSON 编辑",
   "rules.title": "规则文件",
-  "rules.hint": "经由服务器的应用和域名，两个列表在同一个文件中。可以一次粘贴任意多条，保存时会自动校验和整理。",
+  "rules.hint": "经由服务器的应用和域名，以及始终直连的域名，都在同一个文件中。可以一次粘贴任意多条，保存时会自动校验和整理。",
   "rules.invalid": "JSON 错误：{error}",
-  "rules.notObject": "文件必须是一个对象：{ \"apps\": [], \"domains\": [] }",
+  "rules.notObject": "文件必须是一个对象：{ \"apps\": [], \"domains\": [], \"direct\": [] }",
   "rules.save": "保存",
   "rules.reveal": "在文件夹中显示",
 
@@ -121,6 +121,11 @@ export const zh: Dict = {
   "domains.empty1": "目前没有域名经由服务器。",
   "domains.empty2": "添加域名后，只有它会走隧道。",
   "domains.footer": "域名包含所有子域名：{a} 也涵盖 {b}。",
+
+  "direct.title": "始终直连",
+  "direct.empty1": "目前没有域名被排除在 Routeway 之外。",
+  "direct.empty2": "添加只能通过企业 VPN 打开的内部网站。",
+  "direct.footer": "应用会绕过 Routeway 直接访问这些网站，因此会使用 VPN 的 DNS 和路由。{a} 也涵盖其子域名。",
 
   "apps.title": "经由服务器的应用",
   "apps.rejected": "看起来不像进程名",

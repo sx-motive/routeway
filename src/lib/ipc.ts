@@ -6,6 +6,7 @@ export interface Settings {
   server: Server | null;
   domains: string[];
   processes: string[];
+  direct: string[];
   listen_port: number;
   system_proxy: boolean;
   tun: boolean;

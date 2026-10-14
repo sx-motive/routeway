@@ -66,6 +66,11 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
     ];
     let mut dns_rules: Vec<Value> = Vec::new();
 
+    let direct = settings.normalized_direct();
+    if !direct.is_empty() {
+        route_rules.push(json!({ "domain_suffix": direct, "outbound": "direct" }));
+    }
+
     // Process rules come before domain rules: "this app always goes through the
     // server" is a stronger statement than "this domain does".
     let (process_names, process_paths) = settings.process_rules();
@@ -234,6 +239,28 @@ mod tests {
         assert_eq!(rules[by_name]["process_name"][1], "claude");
         assert_eq!(rules[by_path]["process_path"][0], "/usr/bin/curl");
         assert!(by_name < by_domain && by_path < by_domain);
+    }
+
+    #[test]
+    fn direct_domains_outrank_process_and_domain_rules() {
+        let mut settings = settings_with(&["argustelecom.ru"]);
+        settings.processes = vec!["claude.exe".into()];
+        settings.direct = vec!["jira.argustelecom.ru".into()];
+        let cfg = build_config(&settings).unwrap();
+        let rules = cfg["route"]["rules"].as_array().unwrap();
+
+        let direct = rules
+            .iter()
+            .position(|r| r["outbound"] == "direct" && !r["domain_suffix"].is_null())
+            .unwrap();
+        let by_name = rules.iter().position(|r| !r["process_name"].is_null()).unwrap();
+        let proxied = rules
+            .iter()
+            .position(|r| r["outbound"] == "proxy" && !r["domain_suffix"].is_null())
+            .unwrap();
+
+        assert_eq!(rules[direct]["domain_suffix"][0], "jira.argustelecom.ru");
+        assert!(direct < by_name && direct < proxied);
     }
 
     #[test]
