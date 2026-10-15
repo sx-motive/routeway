@@ -59,7 +59,7 @@ export const zh: Dict = {
   "health.down": "无响应",
   "health.modeTcp": "TCP 直连服务器",
   "health.modeTunnel": "经由隧道",
-  "health.ms": "{ms} 毫秒",
+  "health.ms": "{ms}毫秒",
   "health.avg": "平均 {ms} 毫秒",
   "health.loss": "丢包 {pct}%",
 

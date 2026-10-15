@@ -61,3 +61,7 @@ export interface Health {
 export const getHealth = () => invoke<Health>("get_health");
 
 export const revealConfig = () => invoke<void>("reveal_config");
+
+// Only these two window operations are needed; keep the full Window API out of the bundle.
+export const minimizeWindow = () => invoke<void>("minimize_window");
+export const hideWindow = () => invoke<void>("hide_window");

@@ -1,6 +1,6 @@
 [package]
 name = "routeway"
-version = "0.6.0"
+version = "0.6.1"
 description = "Split-tunnel router: send chosen domains through your own server, keep the rest direct"
 edition = "2021"
 rust-version = "1.82"
@@ -44,3 +44,10 @@ libc = "0.2"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
+
+# Keep unwinding semantics; shrink release artifacts without changing panic handling.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

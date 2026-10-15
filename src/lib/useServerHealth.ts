@@ -11,11 +11,18 @@ export function useServerHealth(): Health {
 
   useEffect(() => {
     let alive = true;
-    void getHealth().then((current) => alive && setHealth(current));
-    const unlisten = listen<Health>("health", (event) => setHealth(event.payload));
+    let receivedEvent = false;
+    const unlisten = listen<Health>("health", (event) => {
+      receivedEvent = true;
+      if (alive) setHealth(event.payload);
+    });
+    // Subscribe before taking a snapshot; a late snapshot must not overwrite a newer event.
+    void unlisten.then(() => getHealth()).then((current) => {
+      if (alive && !receivedEvent) setHealth(current);
+    }).catch((err) => console.warn("[health] snapshot failed", err));
     return () => {
       alive = false;
-      void unlisten.then((fn) => fn());
+      void unlisten.then((fn) => fn()).catch(() => {});
     };
   }, []);
 

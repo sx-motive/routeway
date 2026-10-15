@@ -65,7 +65,7 @@ export const en = {
   "health.down": "No response",
   "health.modeTcp": "TCP to server",
   "health.modeTunnel": "through the tunnel",
-  "health.ms": "{ms} ms",
+  "health.ms": "{ms}ms",
   "health.avg": "avg {ms} ms",
   "health.loss": "loss {pct}%",
 

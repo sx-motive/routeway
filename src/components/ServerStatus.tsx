@@ -1,10 +1,10 @@
 import { Server as ServerIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
-import { LatencyBars } from "./LatencyBars";
+import { LatencyChart } from "./LatencyChart";
 import { useI18n } from "../i18n";
 import type { Server } from "../lib/vless";
-import { PROBE_WINDOW, summarize, type Health, type Sample } from "../lib/useServerHealth";
+import { PROBE_WINDOW, summarize, useServerHealth, type Sample } from "../lib/useServerHealth";
 
 const SLOW_MS = { tcp: 300, tunnel: 1200 } as const;
 
@@ -19,16 +19,14 @@ const DOT: Record<State, string> = {
 
 export function ServerStatus({
   server,
-  health,
   onEdit,
 }: {
   server: Server | null;
-  health: Health;
   onEdit: () => void;
 }) {
   const { t } = useI18n();
-  const { mode, samples } = health;
-  const { last, avg, lossPct } = summarize(samples);
+  const { mode, samples } = useServerHealth();
+  const { last, lossPct } = summarize(samples);
 
   const state: State = !last
     ? "checking"
@@ -80,7 +78,6 @@ export function ServerStatus({
                 <span className="text-sm text-fg">
                   {last.ms === null ? "—" : t("health.ms", { ms: last.ms })}
                 </span>
-                {avg !== null ? <span>{t("health.avg", { ms: avg })}</span> : null}
                 <span className={lossPct > 0 ? "text-warn" : undefined}>
                   {t("health.loss", { pct: lossPct })}
                 </span>
@@ -88,7 +85,7 @@ export function ServerStatus({
             ) : null}
           </div>
           <div className="mt-2.5">
-            <LatencyBars samples={samples} slots={PROBE_WINDOW} describe={describe} />
+            <LatencyChart samples={samples} slots={PROBE_WINDOW} describe={describe} />
           </div>
         </div>
       ) : null}
