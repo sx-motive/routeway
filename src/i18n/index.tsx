@@ -34,8 +34,15 @@ function fill(template: string, vars: Vars = {}): string {
   );
 }
 
+const pluralRules = new Map<Lang, Intl.PluralRules>();
+
 function pickPlural(lang: Lang, forms: Plural, count: number): string {
-  const category = new Intl.PluralRules(lang).select(count) as keyof Plural;
+  let rules = pluralRules.get(lang);
+  if (!rules) {
+    rules = new Intl.PluralRules(lang);
+    pluralRules.set(lang, rules);
+  }
+  const category = rules.select(count) as keyof Plural;
   return forms[category] ?? forms.other;
 }
 

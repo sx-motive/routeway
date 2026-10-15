@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 
@@ -102,9 +103,10 @@ impl Settings {
     pub fn process_rules(&self) -> (Vec<String>, Vec<String>) {
         let mut names: Vec<String> = Vec::new();
         let mut paths: Vec<String> = Vec::new();
+        let mut seen = HashSet::new();
         for raw in &self.processes {
             let value = raw.trim();
-            if value.is_empty() || value.starts_with('#') {
+            if value.is_empty() || value.starts_with('#') || !seen.insert(value) {
                 continue;
             }
             let target = if value.contains('/') || value.contains('\\') {
@@ -112,10 +114,7 @@ impl Settings {
             } else {
                 &mut names
             };
-            let value = value.to_string();
-            if !target.contains(&value) {
-                target.push(value);
-            }
+            target.push(value.to_string());
         }
         (names, paths)
     }
@@ -123,9 +122,10 @@ impl Settings {
 
 fn normalize_domains(raw: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
+    let mut seen = HashSet::new();
     for entry in raw {
         if let Some(domain) = normalize_domain(entry) {
-            if !out.contains(&domain) {
+            if seen.insert(domain.clone()) {
                 out.push(domain);
             }
         }
@@ -236,9 +236,10 @@ impl Rules {
         }
 
         let mut apps: Vec<String> = Vec::new();
+        let mut seen = HashSet::new();
         for entry in &raw.apps {
             let app = entry.trim().trim_matches(|c| c == '"' || c == '\'').to_string();
-            if !app.is_empty() && !apps.contains(&app) {
+            if !app.is_empty() && seen.insert(app.clone()) {
                 apps.push(app);
             }
         }
@@ -253,9 +254,10 @@ impl Rules {
 
 fn parse_domains(raw: &[String], rejected: &mut Vec<String>) -> Vec<String> {
     let mut domains: Vec<String> = Vec::new();
+    let mut seen = HashSet::new();
     for entry in raw {
         match normalize_domain(entry) {
-            Some(domain) if !domains.contains(&domain) => domains.push(domain),
+            Some(domain) if seen.insert(domain.clone()) => domains.push(domain),
             Some(_) => {}
             None if entry.trim().is_empty() => {}
             None => rejected.push(entry.trim().to_string()),
@@ -378,6 +380,32 @@ mod tests {
         assert_eq!(rules.direct, vec!["jira.argustelecom.ru"]);
         assert!(Rules::parse(r#"{ "domains": [] }"#).unwrap().direct.is_empty());
         assert!(Rules::parse(r#"{ "direct": ["intranet"] }"#).is_err());
+    }
+
+    #[test]
+    fn deduplication_preserves_first_seen_order_for_large_lists() {
+        let entries: Vec<String> = (0..2_000)
+            .map(|i| format!("host{}.example.com", i % 1_000))
+            .collect();
+        let settings = Settings {
+            domains: entries.clone(),
+            processes: vec![
+                " app ".into(), "/bin/tool".into(), "app".into(),
+                "/bin/tool".into(), "other".into(),
+            ],
+            ..Settings::default()
+        };
+        let expected = entries[..1_000].to_vec();
+        assert_eq!(settings.normalized_domains(), expected);
+        assert_eq!(
+            settings.process_rules(),
+            (vec!["app".to_string(), "other".to_string()], vec!["/bin/tool".to_string()])
+        );
+        let text = serde_json::json!({ "domains": entries, "direct": entries, "apps": ["\"app\"", "app", " other "] }).to_string();
+        let rules = Rules::parse(&text).unwrap();
+        assert_eq!(rules.domains, expected);
+        assert_eq!(rules.direct, expected);
+        assert_eq!(rules.apps, vec!["app", "other"]);
     }
 
     #[test]

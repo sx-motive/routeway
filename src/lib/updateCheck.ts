@@ -7,12 +7,13 @@ export interface UpdateAvailable {
   install: () => Promise<void>;
 }
 
-let started = false;
+let pending: Promise<UpdateAvailable | null> | undefined;
 
-export async function checkForUpdate(): Promise<UpdateAvailable | null> {
-  if (started) return null;
-  started = true;
+export function checkForUpdate(): Promise<UpdateAvailable | null> {
+  return pending ??= findUpdate();
+}
 
+async function findUpdate(): Promise<UpdateAvailable | null> {
   try {
     const update = await check();
     if (!update) return null;

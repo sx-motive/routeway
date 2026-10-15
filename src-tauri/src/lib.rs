@@ -237,6 +237,16 @@ fn get_health(app: AppHandle) -> health::Health {
 }
 
 #[tauri::command]
+fn minimize_window(window: tauri::Window) -> Result<(), String> {
+    window.minimize().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn hide_window(window: tauri::Window) -> Result<(), String> {
+    window.hide().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 async fn check_ip(app: AppHandle, through_server: bool) -> Result<String, String> {
     let settings = settings::load(&app);
     let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(20));
@@ -371,6 +381,8 @@ pub fn run() {
             disconnect,
             check_ip,
             get_health,
+            minimize_window,
+            hide_window,
             reveal_config
         ])
         .setup(|app| {

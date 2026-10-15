@@ -1,25 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import {
-  ArrowDownToLine,
-  Loader2,
-  RefreshCw,
-  ShieldCheck,
-} from "lucide-react";
+import { ArrowDownToLine, Loader2 } from "lucide-react";
 import { TitleBar, type Tab } from "./components/TitleBar";
-import { ServerCard } from "./components/ServerCard";
-import { DomainList } from "./components/DomainList";
-import { DirectList } from "./components/DirectList";
-import { ProcessList } from "./components/ProcessList";
-import { RulesDialog } from "./components/RulesDialog";
 import { ServerStatus } from "./components/ServerStatus";
-import { useServerHealth } from "./lib/useServerHealth";
 import { CoreLog } from "./components/CoreLog";
-import { stampLocalTime, type LogEvent } from "./lib/coreLog";
+import type { LogEvent } from "./lib/coreLog";
+import { createLogStore } from "./lib/logStore";
 import { Button } from "./components/ui/button";
 import { Switch } from "./components/ui/switch";
-import { Card, Row, Rows } from "./components/ui/card";
-import { NumericInput } from "./components/ui/numeric-input";
+import { Card } from "./components/ui/card";
 import {
   checkIp,
   connect,
@@ -31,20 +20,23 @@ import {
   type Settings,
   type Status,
 } from "./lib/ipc";
-import type { Server } from "./lib/vless";
 import { checkForUpdate, type UpdateAvailable } from "./lib/updateCheck";
-import { LANGS, toLang, useI18n } from "./i18n";
+import { toLang, useI18n } from "./i18n";
 
 type Busy = "idle" | "connecting" | "disconnecting";
+
+const SettingsPanel = lazy(() => import("./components/SettingsPanel"));
+const RulesDialog = lazy(() =>
+  import("./components/RulesDialog").then((module) => ({ default: module.RulesDialog })),
+);
 
 export function App() {
   const { t, lang, setLang } = useI18n();
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState<Busy>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [log, setLog] = useState<LogEvent[]>([]);
+  const [logStore] = useState(createLogStore);
   const [tab, setTab] = useState<Tab>("home");
-  const health = useServerHealth();
   const [update, setUpdate] = useState<UpdateAvailable | null>(null);
   const [installing, setInstalling] = useState(false);
   const [ips, setIps] = useState<{ direct?: string; server?: string }>({});
@@ -57,26 +49,28 @@ export function App() {
       if (cancelled) return;
       setStatus(s);
       setError(startupError);
-      setLog(s.log.map(stampLocalTime));
+      logStore.reset(s.log);
       setLang(toLang(s.settings.language));
     }).catch((err) => {
       if (!cancelled) setError(String(err));
     });
-    void checkForUpdate().then(setUpdate);
+    void checkForUpdate().then((available) => {
+      if (!cancelled) setUpdate(available);
+    });
     return () => { cancelled = true; };
-  }, [setLang]);
+  }, [setLang, logStore]);
 
   useEffect(() => {
     const unlisten = Promise.all([
       listen<LogEvent>("core-log", (event) =>
-        setLog((prev) => [...prev.slice(-299), stampLocalTime(event.payload)]),
+        logStore.append(event.payload),
       ),
       listen<string>("core-exit", () => void getStatus().then(setStatus)),
     ]);
     return () => {
       void unlisten.then((fns) => fns.forEach((fn) => fn()));
     };
-  }, []);
+  }, [logStore]);
 
   const persist = useCallback(async (next: Settings) => {
     setStatus((prev) => (prev ? { ...prev, settings: next } : prev));
@@ -129,10 +123,10 @@ export function App() {
     setProbing(true);
     setIps({});
     try {
-      const direct = await checkIp(false).catch(() => "—");
-      setIps({ direct });
-      const server = await checkIp(true).catch(() => "—");
-      setIps({ direct, server });
+      await Promise.all([
+        checkIp(false).catch(() => "—").then((direct) => setIps((prev) => ({ ...prev, direct }))),
+        checkIp(true).catch(() => "—").then((server) => setIps((prev) => ({ ...prev, server }))),
+      ]);
     } finally {
       setProbing(false);
     }
@@ -222,7 +216,7 @@ export function App() {
                 ].join(" ")}
               />
               <div className="min-w-0 flex-1">
-                <p className="text-sm text-fg">
+                <p className="text-sm text-fg" title={running ? routedSummary : t("status.allDirect")}>
                   {working
                     ? busy === "connecting"
                       ? t("status.connecting")
@@ -232,9 +226,6 @@ export function App() {
                         ? t("status.onTun")
                         : t("status.on")
                       : t("status.off")}
-                </p>
-                <p className="truncate text-xs text-fg-muted">
-                  {running ? routedSummary : t("status.allDirect")}
                 </p>
               </div>
               <Switch
@@ -260,11 +251,10 @@ export function App() {
 
           <ServerStatus
             server={settings.server}
-            health={health}
             onEdit={() => setTab("settings")}
           />
 
-          <CoreLog events={log} onClear={() => setLog([])} />
+          <CoreLog store={logStore} />
         </div>
       ) : (
         // A block container, not a flex column: flex children shrink below their
@@ -273,181 +263,34 @@ export function App() {
           {updateBanner}
           {errorBanner}
 
-          <Card title={t("settings.general")}>
-            <Rows>
-              <Row
-                interactive={false}
-                label={t("settings.language")}
-                control={
-                  <div className="flex h-8 border border-border bg-field">
-                    {LANGS.map(({ id, label }) => (
-                      <button
-                        key={id}
-                        type="button"
-                        aria-pressed={lang === id}
-                        onClick={() => void changeLanguage(id)}
-                        className={[
-                          "px-3 text-xs transition-colors",
-                          lang === id
-                            ? "bg-bg-elevated text-fg"
-                            : "text-fg-muted hover:text-fg",
-                        ].join(" ")}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                }
-              />
-              <Row
-                label={t("settings.autostart")}
-                control={
-                  <Switch
-                    checked={settings.autostart}
-                    onCheckedChange={(on) => void persist({ ...settings, autostart: on })}
-                    aria-label={t("settings.autostart")}
-                  />
-                }
-              />
-              <Row
-                label={t("settings.autoConnect")}
-                control={
-                  <Switch
-                    checked={settings.auto_connect}
-                    onCheckedChange={(on) => void persist({ ...settings, auto_connect: on })}
-                    aria-label={t("settings.autoConnect")}
-                  />
-                }
-              />
-            </Rows>
-          </Card>
-
-          <ServerCard
-            server={settings.server}
-            onChange={(server: Server) => void persist({ ...settings, server })}
-          />
-
-          <Card title={t("settings.routing")}>
-            <Rows>
-              <Row
-                label={t("settings.tun")}
-                hint={t("settings.tunHint")}
-                control={
-                  <Switch
-                    checked={settings.tun}
-                    disabled={working}
-                    onCheckedChange={(on) => void switchTun({ ...settings, tun: on })}
-                    aria-label={t("settings.tun")}
-                  />
-                }
-              />
-              <Row
-                label={t("settings.proxy")}
-                hint={
-                  settings.tun
-                    ? t("settings.proxyTunHint")
-                    : t("settings.proxyHint", { port: settings.listen_port })
-                }
-                control={
-                  <Switch
-                    checked={settings.system_proxy && !settings.tun}
-                    disabled={settings.tun}
-                    onCheckedChange={(on) => void persist({ ...settings, system_proxy: on })}
-                    aria-label={t("settings.proxy")}
-                  />
-                }
-              />
-              <Row
-                label={t("settings.port")}
-                hint={t("settings.portHint", {
-                  port: settings.listen_port,
-                  probe: settings.listen_port + 1,
-                })}
-                control={
-                  <NumericInput
-                    min={1025}
-                    max={65534}
-                    value={settings.listen_port}
-                    disabled={running}
-                    title={running ? t("settings.portLocked") : undefined}
-                    onValueChange={(port) => void persist({ ...settings, listen_port: port })}
-                    className="h-8 w-24 px-2 text-right font-mono text-xs"
-                  />
-                }
-              />
-            </Rows>
-          </Card>
-
-          <ProcessList
-            processes={settings.processes}
-            onChange={(processes) => void persist({ ...settings, processes })}
-            onEditFile={() => setRulesOpen(true)}
-          />
-
-          <DomainList
-            domains={settings.domains}
-            onChange={(domains) => void persist({ ...settings, domains })}
-            onEditFile={() => setRulesOpen(true)}
-          />
-
-          <DirectList
-            domains={settings.direct}
-            onChange={(direct) => void persist({ ...settings, direct })}
-            onEditFile={() => setRulesOpen(true)}
-          />
-
-          <Card
-            title={t("check.title")}
-            aside={
-              <Button
-                variant="ghost"
-                size="sm"
-                className="-mr-2 h-7"
-                disabled={!running || probing}
-                onClick={probe}
-              >
-                {probing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-3.5 w-3.5" />
-                )}
-                {t("check.run")}
-              </Button>
-            }
-          >
-            <div className="grid grid-cols-2 divide-x divide-border">
-              <div className="px-4 py-3">
-                <p className="text-xs text-fg-muted">{t("check.direct")}</p>
-                <p className="mt-0.5 font-mono text-sm text-fg">{ips.direct ?? "—"}</p>
-              </div>
-              <div className="px-4 py-3">
-                <p className="text-xs text-fg-muted">{t("check.server")}</p>
-                <p className="mt-0.5 font-mono text-sm text-fg">
-                  {ips.server ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      {ips.server}
-                      {ips.direct && ips.server !== "—" && ips.server !== ips.direct ? (
-                        <ShieldCheck className="h-3.5 w-3.5 text-ok" />
-                      ) : null}
-                    </span>
-                  ) : (
-                    "—"
-                  )}
-                </p>
-              </div>
-            </div>
-          </Card>
+          <Suspense fallback={<p className="text-xs text-fg-muted">{t("app.loading")}</p>}>
+            <SettingsPanel
+              status={status}
+              working={working}
+              persist={persist}
+              switchTun={switchTun}
+              changeLanguage={changeLanguage}
+              onEditFile={() => setRulesOpen(true)}
+              ips={ips}
+              probing={probing}
+              probe={probe}
+            />
+          </Suspense>
         </div>
       )}
 
-      <RulesDialog
-        open={rulesOpen}
-        onOpenChange={setRulesOpen}
-        onSaved={(next) => {
-          setStatus(next);
-          setError(null);
-        }}
-      />
+      {rulesOpen ? (
+        <Suspense fallback={null}>
+          <RulesDialog
+            open={rulesOpen}
+            onOpenChange={setRulesOpen}
+            onSaved={(next) => {
+              setStatus(next);
+              setError(null);
+            }}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

@@ -16,8 +16,8 @@ export const ru: Dict = {
 
   "status.connecting": "Подключаюсь…",
   "status.disconnecting": "Отключаюсь…",
-  "status.on": "Работает",
-  "status.onTun": "Работает · TUN",
+  "status.on": "Подключено",
+  "status.onTun": "Подключено · TUN",
   "status.off": "Выключено",
   "status.allDirect": "весь трафик идёт напрямую",
   "status.nothingRouted": "ничего не направлено через сервер — весь трафик идёт напрямую",
@@ -70,7 +70,7 @@ export const ru: Dict = {
   "health.down": "Нет ответа",
   "health.modeTcp": "TCP до сервера",
   "health.modeTunnel": "через туннель",
-  "health.ms": "{ms} мс",
+  "health.ms": "{ms}мс",
   "health.avg": "в ср. {ms} мс",
   "health.loss": "потери {pct}%",
 

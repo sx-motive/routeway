@@ -1,5 +1,6 @@
 //! Supervisor for the bundled sing-box sidecar.
 
+use std::collections::VecDeque;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
@@ -35,7 +36,7 @@ impl Running {
 #[derive(Default)]
 pub struct CoreState {
     running: Mutex<Option<Running>>,
-    log: Mutex<Vec<LogEvent>>,
+    log: Mutex<VecDeque<LogEvent>>,
     parser: Mutex<LogParser>,
 }
 
@@ -52,7 +53,10 @@ impl CoreState {
     }
 
     pub fn log_events(&self) -> Vec<LogEvent> {
-        self.log.lock().map(|l| l.clone()).unwrap_or_default()
+        self.log
+            .lock()
+            .map(|l| l.iter().cloned().collect())
+            .unwrap_or_default()
     }
 
     fn log_text(&self) -> String {
@@ -117,9 +121,9 @@ impl CoreState {
     fn push_event(&self, app: &AppHandle, event: LogEvent) {
         if let Ok(mut log) = self.log.lock() {
             if log.len() >= LOG_CAPACITY {
-                log.remove(0);
+                log.pop_front();
             }
-            log.push(event.clone());
+            log.push_back(event.clone());
         }
         let _ = app.emit("core-log", event);
     }

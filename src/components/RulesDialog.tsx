@@ -35,19 +35,24 @@ export function RulesDialog({
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     setLoaded(false);
     setServerError(null);
     void getRules().then((raw) => {
+      if (cancelled) return;
       setText(raw);
       setLoaded(true);
+    }).catch((err) => {
+      if (!cancelled) setServerError(String(err));
     });
+    return () => { cancelled = true; };
   }, [open]);
 
   const problem = useMemo(() => (loaded ? jsonProblem(text, t("rules.notObject")) : null), [text, loaded, t]);
   const error = problem ? t("rules.invalid", { error: problem }) : serverError;
 
   async function save() {
-    if (problem || saving) return;
+    if (!loaded || problem || saving) return;
     setSaving(true);
     try {
       onSaved(await saveRules(text));

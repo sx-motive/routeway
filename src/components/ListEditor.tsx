@@ -48,10 +48,14 @@ export function ListEditor({
 
     const accepted: string[] = [];
     const rejected: string[] = [];
+    const seen = new Set(items);
     for (const candidate of candidates) {
       const value = normalize(candidate);
       if (!value) rejected.push(candidate);
-      else if (!items.includes(value) && !accepted.includes(value)) accepted.push(value);
+      else if (!seen.has(value)) {
+        seen.add(value);
+        accepted.push(value);
+      }
     }
 
     if (accepted.length > 0) onChange([...items, ...accepted]);

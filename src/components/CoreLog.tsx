@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CircleAlert, CircleCheck, Info, Terminal, TriangleAlert } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { useI18n } from "../i18n";
 import { groupLog, reasonKey, splitTarget, type LogEvent, type LogRow } from "../lib/coreLog";
+import type { LogStore } from "../lib/logStore";
 
 function LevelIcon({ event }: { event: LogEvent }) {
   const className = "mt-0.5 h-3.5 w-3.5 shrink-0";
@@ -82,7 +83,8 @@ function Row({ row }: { row: LogRow }) {
   );
 }
 
-export function CoreLog({ events, onClear }: { events: LogEvent[]; onClear: () => void }) {
+export function CoreLog({ store }: { store: LogStore }) {
+  const events = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = useI18n();
   const [raw, setRaw] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -112,7 +114,7 @@ export function CoreLog({ events, onClear }: { events: LogEvent[]; onClear: () =
           >
             {raw ? t("log.readable") : t("log.raw")}
           </Button>
-          <Button variant="ghost" size="sm" className="h-7" disabled={!events.length} onClick={onClear}>
+          <Button variant="ghost" size="sm" className="h-7" disabled={!events.length} onClick={store.clear}>
             {t("log.clear")}
           </Button>
         </span>

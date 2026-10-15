@@ -1,8 +1,7 @@
 import { FolderOpen, Minus, MoonStar, Sun, X } from "lucide-react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Button } from "./ui/button";
 import { useTheme } from "../theme/ThemeProvider";
-import { revealConfig } from "../lib/ipc";
+import { hideWindow, minimizeWindow, revealConfig } from "../lib/ipc";
 import { useI18n } from "../i18n";
 import type { Key } from "../i18n/en";
 
@@ -68,7 +67,7 @@ export function TitleBar({ tab, onTabChange }: { tab: Tab; onTabChange: (tab: Ta
         className="h-7 w-7 text-fg-muted/50"
         aria-label={t("titlebar.minimize")}
         title={t("titlebar.minimize")}
-        onClick={() => void getCurrentWindow().minimize()}
+        onClick={() => void minimizeWindow()}
       >
         <Minus className="h-3.5 w-3.5" />
       </Button>
@@ -78,7 +77,7 @@ export function TitleBar({ tab, onTabChange }: { tab: Tab; onTabChange: (tab: Ta
         className="h-7 w-7 text-fg-muted/50"
         aria-label={t("titlebar.close")}
         title={t("titlebar.closeHint")}
-        onClick={() => void getCurrentWindow().hide()}
+        onClick={() => void hideWindow()}
       >
         <X className="h-3.5 w-3.5" />
       </Button>
