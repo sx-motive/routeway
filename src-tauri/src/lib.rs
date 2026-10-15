@@ -5,6 +5,7 @@ mod corelog;
 mod health;
 mod settings;
 mod singbox;
+mod startup;
 mod sysproxy;
 mod tunhost;
 
@@ -49,6 +50,28 @@ async fn status_of(app: &AppHandle, settings: Settings) -> Status {
 async fn get_status(app: AppHandle) -> Status {
     let settings = settings::load(&app);
     status_of(&app, settings).await
+}
+
+#[derive(Serialize)]
+struct StartupStatus {
+    status: Status,
+    error: Option<String>,
+}
+
+/// Called when the webview is ready. Waiting here keeps the UI from offering a
+/// second connection while startup is still starting the core or awaiting UAC.
+#[tauri::command]
+async fn initialize(app: AppHandle) -> StartupStatus {
+    let settings = settings::load(&app);
+    let error = app
+        .state::<startup::Startup>()
+        .run(&settings, async { connect(app.clone()).await.map(|_| ()) })
+        .await
+        .err();
+    StartupStatus {
+        status: get_status(app).await,
+        error,
+    }
 }
 
 /// Persists settings. If the core is already running it is restarted so the new
@@ -334,8 +357,10 @@ pub fn run() {
             None,
         ))
         .manage(CoreState::default())
+        .manage(startup::Startup::default())
         .manage(health::HealthState::default())
         .invoke_handler(tauri::generate_handler![
+            initialize,
             get_status,
             save_settings,
             set_language,

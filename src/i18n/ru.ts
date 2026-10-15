@@ -108,7 +108,8 @@ export const ru: Dict = {
   "settings.port": "Порт",
   "settings.portHint": "Приложения ходят на 127.0.0.1:{port}, пробник занимает {probe}.",
   "settings.portLocked": "Выключите маршрутизацию, чтобы сменить порт",
-  "settings.autostart": "Запускать при входе в систему",
+  "settings.autostart": "Запуск при старте системы",
+  "settings.autoConnect": "Автоматически подключаться к серверу при старте",
 
   "check.title": "Проверка",
   "check.run": "Проверить IP",

@@ -97,7 +97,8 @@ export const zh: Dict = {
   "settings.port": "端口",
   "settings.portHint": "应用连接 127.0.0.1:{port}，探测端口使用 {probe}。",
   "settings.portLocked": "请先关闭路由再修改端口",
-  "settings.autostart": "登录时启动",
+  "settings.autostart": "系统启动时运行",
+  "settings.autoConnect": "启动应用时自动连接服务器",
 
   "check.title": "检测",
   "check.run": "检测 IP",

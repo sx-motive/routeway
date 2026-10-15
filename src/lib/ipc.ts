@@ -12,6 +12,7 @@ export interface Settings {
   tun: boolean;
   language: string;
   autostart: boolean;
+  auto_connect: boolean;
 }
 
 export interface Status {
@@ -23,6 +24,9 @@ export interface Status {
 }
 
 export const getStatus = () => invoke<Status>("get_status");
+
+export const initialize = () =>
+  invoke<{ status: Status; error: string | null }>("initialize");
 
 export const saveSettings = (settings: Settings) =>
   invoke<Status>("save_settings", { settings });

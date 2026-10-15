@@ -65,6 +65,8 @@ pub struct Settings {
     pub language: String,
     #[serde(default)]
     pub autostart: bool,
+    #[serde(default)]
+    pub auto_connect: bool,
 }
 
 impl Default for Settings {
@@ -79,6 +81,7 @@ impl Default for Settings {
             tun: false,
             language: default_language(),
             autostart: false,
+            auto_connect: false,
         }
     }
 }
@@ -329,7 +332,32 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_domain, Rules};
+    use super::{normalize_domain, Rules, Settings};
+
+    #[test]
+    fn existing_settings_do_not_enable_auto_connect_implicitly() {
+        let settings: Settings = serde_json::from_str(r#"{"autostart": true}"#).unwrap();
+        assert!(settings.autostart);
+        assert!(!settings.auto_connect);
+        assert!(!Settings::default().auto_connect);
+    }
+
+    #[test]
+    fn startup_preferences_persist_independently() {
+        for autostart in [false, true] {
+            for auto_connect in [false, true] {
+                let settings = Settings {
+                    autostart,
+                    auto_connect,
+                    ..Settings::default()
+                };
+                let saved = serde_json::to_string(&settings).unwrap();
+                let loaded: Settings = serde_json::from_str(&saved).unwrap();
+                assert_eq!(loaded.autostart, autostart);
+                assert_eq!(loaded.auto_connect, auto_connect);
+            }
+        }
+    }
 
     #[test]
     fn rules_normalize_and_dedupe() {
