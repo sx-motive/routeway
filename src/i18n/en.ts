@@ -103,7 +103,8 @@ export const en = {
   "settings.port": "Port",
   "settings.portHint": "Apps connect to 127.0.0.1:{port}, the probe uses {probe}.",
   "settings.portLocked": "Turn routing off to change the port",
-  "settings.autostart": "Launch at login",
+  "settings.autostart": "Launch at system startup",
+  "settings.autoConnect": "Automatically connect to the server on launch",
 
   "check.title": "Check",
   "check.run": "Check IP",

@@ -25,6 +25,7 @@ import {
   connect,
   disconnect,
   getStatus,
+  initialize,
   saveSettings,
   setLanguage,
   type Settings,
@@ -51,12 +52,18 @@ export function App() {
   const [rulesOpen, setRulesOpen] = useState(false);
 
   useEffect(() => {
-    void getStatus().then((s) => {
+    let cancelled = false;
+    void initialize().then(({ status: s, error: startupError }) => {
+      if (cancelled) return;
       setStatus(s);
+      setError(startupError);
       setLog(s.log.map(stampLocalTime));
       setLang(toLang(s.settings.language));
+    }).catch((err) => {
+      if (!cancelled) setError(String(err));
     });
     void checkForUpdate().then(setUpdate);
+    return () => { cancelled = true; };
   }, [setLang]);
 
   useEffect(() => {
@@ -136,8 +143,11 @@ export function App() {
       <div className="flex h-full flex-col">
         <TitleBar tab={tab} onTabChange={setTab} />
         <div className="flex flex-1 items-center justify-center text-xs text-fg-muted">
-          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-          {t("app.loading")}
+          {error ? (
+            <span role="alert">{error}</span>
+          ) : (
+            <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />{t("app.loading")}</>
+          )}
         </div>
       </div>
     );
@@ -296,6 +306,16 @@ export function App() {
                     checked={settings.autostart}
                     onCheckedChange={(on) => void persist({ ...settings, autostart: on })}
                     aria-label={t("settings.autostart")}
+                  />
+                }
+              />
+              <Row
+                label={t("settings.autoConnect")}
+                control={
+                  <Switch
+                    checked={settings.auto_connect}
+                    onCheckedChange={(on) => void persist({ ...settings, auto_connect: on })}
+                    aria-label={t("settings.autoConnect")}
                   />
                 }
               />
