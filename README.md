@@ -1,142 +1,43 @@
 # Routeway
 
-Маршрутизатор трафика по доменам. Указываешь свой сервер и список доменов — они идут
-через сервер, **весь остальной трафик остаётся прямым**. macOS и Windows.
+Desktop traffic routing for **Windows and macOS**. Send selected websites and apps through your own VLESS/REALITY server while keeping other traffic direct. Built with Tauri, React and sing-box.
 
-Под капотом — [sing-box](https://sing-box.sagernet.org) как встроенное ядро;
-Routeway генерит ему конфиг, следит за процессом и переключает системный прокси.
+## Features
 
-## Как это работает
+- Domain and process rules, with always-direct exceptions.
+- System proxy and TUN modes; TUN supports TCP/UDP and requires administrator privileges.
+- Separate TCP and tunnel HTTPS health metrics, with automatic recovery and restart limits.
+- Process diagnostics, core restart and cleanup controls.
+- Tray operation, optional launch at login and auto-connect, signed automatic updates.
 
-```
-приложение ──▶ системный прокси ──▶ 127.0.0.1:2080 (ядро) ──┬──▶ сервер   (домены из списка)
-                                                             └──▶ напрямую (всё остальное)
-```
+## Get started
 
-Решение «через туннель или напрямую» принимает ядро по имени домена, а не настройки
-системы. Поэтому системный прокси выставляется один раз и дальше не трогается.
+Download a build from [Releases](https://github.com/sx-motive/routeway/releases), add your server, choose domains or apps, and connect. Installers are unsigned; update artifacts are signed.
 
-Порт `2080` — основной вход. На `2081` поднят «пробник»: всё, что туда попадает,
-уходит через сервер в обход списка доменов. Приложение использует его, чтобы
-показать реальный IP сервера, а ты можешь направить туда отдельное приложение.
+System proxy mode handles traffic from apps that use the proxy. Use TUN for apps that ignore it or need UDP. Closing the window keeps routing active; use **Quit** in the tray to exit.
 
-На macOS изменение системного прокси требует прав администратора, поэтому при
-включении и выключении система спросит пароль. На Windows настройки лежат в
-пользовательском реестре — там пароль не нужен.
+## Development
 
-Закрытие окна не выключает маршрутизацию: приложение уходит в трей. Выход через
-пункт «Выйти» в трее останавливает ядро и возвращает системный прокси как было —
-чтобы сеть не осталась указывающей на мёртвый порт.
-
-## Автозапуск
-
-«Запуск при старте системы» запускает Routeway при входе в систему.
-«Автоматически подключаться к серверу при старте» включает соединение с сохранённым
-сервером и настройками при любом запуске приложения, в том числе вручную.
-Эти настройки независимы: можно запускать приложение вместе с системой без
-подключения или автоматически подключаться только при ручном запуске.
-Автоподключение по умолчанию выключено, в том числе при обновлении со старой версии.
-Если сервер ещё не добавлен, приложение открывается без подключения.
-
-В режиме TUN Windows запрашивает права администратора, как при ручном подключении.
-При ошибке приложение показывает её и позволяет подключиться вручную.
-Повторное открытие окна или перезагрузка интерфейса не запускает соединение заново.
-
-## Установка
-
-Готовые сборки — во [вкладке Releases](https://github.com/sx-motive/routeway/releases).
-Установщики не подписаны, поэтому при первом запуске macOS и Windows покажут
-предупреждение. Обновления приложение забирает само — они подписаны ключом проекта.
-
-## Разработка
+Requires Node.js, stable Rust and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ```sh
-npm install
-npm run core        # скачивает sing-box в src-tauri/binaries/
+npm ci
 npm run tauri:dev
 ```
 
-Проверки:
+The dev command downloads the pinned sing-box core automatically. For a fresh desktop build, run `npm run core` first.
 
 ```sh
-npm test                      # парсер, переводы, журнал и сценарии интерфейса
-npm run size                  # production-сборка и размеры всех файлов / gzip
-npx tsc --noEmit              # типы фронтенда
-cd src-tauri && cargo test    # нормализация доменов и генерация конфига ядра
+npm run tauri:build                              # Desktop packages
+npm run build                                    # Frontend build and typecheck
+npm test                                         # Frontend tests
+cargo test --manifest-path src-tauri/Cargo.toml    # Rust tests
 ```
 
-Release-профиль Rust использует LTO, один codegen unit и оптимизацию размера (`opt-level = "s"`).
-Это уменьшает исполняемый файл, но увеличивает время сборки. Обработка panic остаётся стандартной.
-Настройки и JSON-редактор загружаются отдельными JS-чанками при открытии; `npm run size` считает
-все чанки, CSS и шрифты, а не только стартовый JS. Размер встроенного sing-box считается отдельно.
+Core version: `CORE_VERSION` in `scripts/fetch-core.mjs`. Regenerate platform icons and theme-aware UI logos with `node scripts/make-icon.mjs`.
 
-Иконка генерируется кодом, без графических зависимостей:
+## License
 
-```sh
-node scripts/make-icon.mjs
-npx tauri icon icon-source.png
-```
+[GPL-3.0-or-later](LICENSE), without warranty. Copyright (C) 2026 Routeway contributors.
 
-## Релиз
-
-Тег `v*` запускает сборку под macOS (universal) и Windows, подписывает артефакты
-обновления и публикует релиз с `latest.json`:
-
-```sh
-npm version patch        # или minor / major
-git push --follow-tags
-```
-
-Версия ядра запинована в `scripts/fetch-core.mjs` (`CORE_VERSION`).
-
-## Правила по процессам
-
-Кроме доменов можно указать приложения — по имени процесса (`codex`) или по
-полному пути (`/usr/bin/curl`). Ядро определяет владельца локального соединения,
-поэтому **ни TUN, ни права root для этого не нужны**: достаточно, чтобы трафик
-приложения доходил до Routeway, то есть чтобы был включён системный прокси.
-
-Правила по процессам проверяются раньше доменных: «это приложение всегда через
-сервер» — более сильное утверждение, чем «этот домен через сервер».
-
-Поиск владельца соединения стоит системного вызова на каждое соединение, поэтому
-он включается только когда в списке реально что-то есть.
-
-Ограничение: в режиме системного прокси так не поймать приложения, которые его
-игнорируют (Node.js, Go, многие CLI, игры), и UDP/QUIC-трафик. Для них есть режим TUN.
-
-## Всегда напрямую
-
-Третий список, `direct` в `rules.json`, нужен для сайтов, которые
-открываются только через корпоративный VPN. Корпоративный DNS отдаёт для такого
-имени внутренний адрес, а публичный — внешний, куда с домашнего IP не пускают.
-Ядро разрешает имена само и получило бы внешний адрес.
-
-Поэтому домены из `direct` при подключении дописываются в исключения
-системного прокси (сам домен и `*.домен`). Приложения ходят к ним сами, через DNS
-и маршруты VPN, и до ядра такой трафик не доходит. Если запрос всё же пришёл в
-ядро (TUN или приложение, направленное на порт вручную), правило `direct`
-проверяется раньше правил по процессам и доменам.
-
-## Режим TUN
-
-Переключатель «Режим TUN» поднимает виртуальный сетевой интерфейс, и через ядро
-идёт весь трафик системы, TCP и UDP, независимо от того, уважает ли приложение
-прокси. Правила при этом те же: процессы и домены из списка — через сервер,
-остальное ядро сразу выпускает напрямую через физический интерфейс. Системный
-прокси в этом режиме не нужен и не выставляется.
-
-TUN требует прав администратора, поэтому Routeway перезапускает сам себя с
-повышенными правами (`--tun-host`), и уже этот процесс держит ядро. Права
-спрашиваются один раз при включении. Остановка и смена списков идут через файлы
-в каталоге настроек, без повторного запроса. Если приложение упало или его убили,
-хост сам гасит ядро, и сеть не остаётся завёрнутой в мёртвый интерфейс.
-
-Домен в TUN приходит не от приложения, а из сниффинга (SNI/Host) и перехвата DNS,
-поэтому DNS-запросы приложений перехватываются ядром. Ответы в TUN только IPv4:
-если у сервера нет IPv6-выхода, AAAA-first клиенты иначе молча падали бы.
-`strict_route` выключен, чтобы не блокировать DNS корпоративных VPN.
-
-## Что дальше
-
-- Несколько серверов с привязкой правил к разным выходам
+Bundled sing-box retains its [upstream license](licenses/sing-box-LICENSE.txt). See [NOTICE](NOTICE) for its exact version, source code and build instructions.

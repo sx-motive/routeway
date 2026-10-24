@@ -1,15 +1,20 @@
+import { useState, type MouseEvent } from "react";
 import { Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 import { ServerCard } from "./ServerCard";
 import { DomainList } from "./DomainList";
 import { DirectList } from "./DirectList";
 import { ProcessList } from "./ProcessList";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
 import { Card, Row, Rows } from "./ui/card";
 import { NumericInput } from "./ui/numeric-input";
 import { LANGS, useI18n, type Lang } from "../i18n";
-import type { Settings, Status } from "../lib/ipc";
+import type { MaintenanceAction, Settings, Status } from "../lib/ipc";
 import type { Server } from "../lib/vless";
+import appLogo from "../assets/brand/128x128.png";
+import { license, version } from "../../package.json";
+import { openExternal } from "../lib/ipc";
 
 interface SettingsPanelProps {
   status: Status;
@@ -21,13 +26,21 @@ interface SettingsPanelProps {
   ips: { direct?: string; server?: string };
   probing: boolean;
   probe: () => Promise<void>;
+  maintainCore: (action: MaintenanceAction) => Promise<void>;
 }
 
 export default function SettingsPanel({
-  status, working, persist, switchTun, changeLanguage, onEditFile, ips, probing, probe,
+  status, working, persist, switchTun, changeLanguage, onEditFile, ips, probing, probe, maintainCore,
 }: SettingsPanelProps) {
   const { settings, running } = status;
   const { t, lang } = useI18n();
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  function openProjectLink(event: MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault();
+    setLinkError(null);
+    void openExternal(event.currentTarget.href).catch((err) => setLinkError(String(err)));
+  }
   return (
     <>
       <Card title={t("settings.general")}>
@@ -192,6 +205,37 @@ export default function SettingsPanel({
               )}
             </p>
           </div>
+        </div>
+      </Card>
+      <DiagnosticsPanel working={working} canRestart={Boolean(settings.server)} maintainCore={maintainCore} />
+      <Card title={t("about.title")}>
+        <div className="flex flex-col items-center px-6 py-6 text-center">
+          <img src={appLogo} alt="" width={64} height={64} draggable={false} className="brand-logo size-16" />
+          <h3 className="mt-3 text-sm font-medium text-fg">Routeway</h3>
+          <p className="mt-1 text-xs text-fg-muted">{t("about.version", { version })}</p>
+          <p className="mt-3 text-xs leading-relaxed text-fg-muted">
+            © {new Date().getFullYear()} Routeway · Open source · {t("about.license")} {" "}
+            <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener noreferrer"
+              onClick={openProjectLink}
+              className="underline underline-offset-4 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {license}
+            </a>
+            {". "}{t("about.noWarranty")}
+          </p>
+          <nav aria-label={t("about.links")} className="mt-4 flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs">
+            {([
+              ["GitHub", "https://github.com/sx-motive/routeway"],
+              [t("about.releases"), "https://github.com/sx-motive/routeway/releases"],
+              [t("about.issues"), "https://github.com/sx-motive/routeway/issues"],
+            ] as const).map(([label, href]) => (
+              <a key={href} href={href} target="_blank" rel="noopener noreferrer"
+                onClick={openProjectLink}
+                className="text-fg-muted underline-offset-4 transition-colors hover:text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                {label}
+              </a>
+            ))}
+          </nav>
+          {linkError ? <p role="alert" className="mt-3 break-words text-xs text-danger">{t("about.linkError", { error: linkError })}</p> : null}
         </div>
       </Card>
     </>

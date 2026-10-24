@@ -119,6 +119,14 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
     // In TUN mode apps resolve through us and pick whatever family we answer
     // with. Servers without IPv6 egress would silently fail AAAA-first clients.
     let dns_strategy = if settings.tun { "ipv4_only" } else { "prefer_ipv4" };
+    // In proxy mode keep the network's working DNS (including VPN/corporate
+    // resolvers), rather than making every direct connection depend on UDP/53
+    // to Cloudflare. TUN must use an external resolver to avoid DNS recursion.
+    let direct_dns = if settings.tun {
+        json!({ "type": "udp", "tag": "dns-direct", "server": "1.1.1.1" })
+    } else {
+        json!({ "type": "local", "tag": "dns-direct" })
+    };
 
     Ok(json!({
         // Info is what carries the per-connection process and destination that
@@ -127,9 +135,11 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
         "dns": {
             "servers": [
                 { "type": "https", "tag": "dns-proxy", "server": "1.1.1.1", "detour": "proxy" },
-                { "type": "udp", "tag": "dns-direct", "server": "1.1.1.1" }
+                direct_dns
             ],
             "rules": dns_rules,
+            // Unmatched DNS must not depend on the remote server being up.
+            "final": "dns-direct",
             "strategy": dns_strategy
         },
         "inbounds": inbounds,
@@ -279,6 +289,8 @@ mod tests {
         assert!(inbounds.iter().all(|i| i["type"] != "tun"));
         assert_eq!(cfg["dns"]["strategy"], "prefer_ipv4");
         assert_eq!(cfg["route"]["auto_detect_interface"], false);
+        assert_eq!(cfg["dns"]["final"], "dns-direct");
+        assert_eq!(cfg["dns"]["servers"][1]["type"], "local");
     }
 
     #[test]
@@ -293,6 +305,8 @@ mod tests {
         assert_eq!(tun["strict_route"], false);
         assert_eq!(cfg["dns"]["strategy"], "ipv4_only");
         assert_eq!(cfg["route"]["auto_detect_interface"], true);
+        assert_eq!(cfg["dns"]["final"], "dns-direct");
+        assert_eq!(cfg["dns"]["servers"][1]["type"], "udp");
 
         assert!(inbounds.iter().any(|i| i["tag"] == "in"));
         assert!(inbounds.iter().any(|i| i["tag"] == "probe"));

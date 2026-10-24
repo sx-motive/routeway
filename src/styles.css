@@ -78,6 +78,14 @@ body {
     color 200ms ease;
 }
 
+.brand-logo {
+  filter: brightness(0) invert(1);
+}
+
+[data-theme="light"] .brand-logo {
+  filter: brightness(0);
+}
+
 input,
 textarea {
   font-family: inherit;

@@ -2,6 +2,7 @@ node_modules
 dist
 .DS_Store
 *.local
+.playwright-mcp/
 
 # sing-box sidecars are fetched by scripts/fetch-core.mjs, never committed
 src-tauri/binaries/

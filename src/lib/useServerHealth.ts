@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { getHealth, type Health } from "./ipc";
+import { getHealth, type Health, type Sample } from "./ipc";
 
 export type { Health, Sample } from "./ipc";
 
 export const PROBE_WINDOW = 30;
 
 export function useServerHealth(): Health {
-  const [health, setHealth] = useState<Health>({ mode: null, samples: [] });
+  const [health, setHealth] = useState<Health>({ tcp: [], tunnel: [], tcp_available: true, tunnel_active: false });
 
   useEffect(() => {
     let alive = true;
@@ -29,7 +29,7 @@ export function useServerHealth(): Health {
   return health;
 }
 
-export function summarize(samples: Health["samples"]) {
+export function summarize(samples: Sample[]) {
   const answered = samples.filter((s) => s.ms !== null).map((s) => s.ms as number);
   const lossPct = samples.length
     ? Math.round(((samples.length - answered.length) / samples.length) * 100)

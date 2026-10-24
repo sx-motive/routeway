@@ -2,7 +2,9 @@
 mod i18n;
 mod core;
 mod corelog;
+mod diagnostics;
 mod health;
+mod recovery;
 mod settings;
 mod singbox;
 mod startup;
@@ -23,10 +25,15 @@ use tauri_plugin_autostart::ManagerExt;
 use crate::core::CoreState;
 use crate::settings::Settings;
 
+/// Serialize connection changes, including cleanup after an unexpected exit.
+#[derive(Default)]
+struct ConnectionState(tokio::sync::Mutex<()>);
+
 #[derive(Serialize)]
 pub struct Status {
     settings: Settings,
     running: bool,
+    connection_requested: bool,
     system_proxy_active: bool,
     tun_active: bool,
     log: Vec<corelog::LogEvent>,
@@ -40,6 +47,7 @@ async fn status_of(app: &AppHandle, settings: Settings) -> Status {
     Status {
         settings,
         running: app.state::<CoreState>().is_running(),
+        connection_requested: app.state::<recovery::RecoveryState>().token().is_some(),
         system_proxy_active: active,
         tun_active: app.state::<CoreState>().is_tun(),
         log: app.state::<CoreState>().log_events(),
@@ -78,6 +86,8 @@ async fn initialize(app: AppHandle) -> StartupStatus {
 /// domain list takes effect immediately.
 #[tauri::command]
 async fn save_settings(app: AppHandle, settings: Settings) -> Result<Status, String> {
+    let state = app.state::<ConnectionState>();
+    let _guard = state.0.lock().await;
     apply(&app, settings).await
 }
 
@@ -97,6 +107,8 @@ fn reveal_rules(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn save_rules(app: AppHandle, text: String) -> Result<Status, String> {
+    let state = app.state::<ConnectionState>();
+    let _guard = state.0.lock().await;
     let rules = settings::Rules::parse(&text)?;
     let mut settings = settings::load(&app);
     settings.processes = rules.apps;
@@ -107,6 +119,9 @@ async fn save_rules(app: AppHandle, text: String) -> Result<Status, String> {
 
 async fn apply(app: &AppHandle, settings: Settings) -> Result<Status, String> {
     let app = app.clone();
+    let previous = settings::load(&app);
+    let config_changed = singbox::build_config(&previous).ok()
+        != singbox::build_config(&settings).ok();
     settings::save(&app, &settings)?;
     if i18n::current() != i18n::parse(&settings.language) {
         i18n::set(&settings.language);
@@ -122,14 +137,38 @@ async fn apply(app: &AppHandle, settings: Settings) -> Result<Status, String> {
 
     let state = app.state::<CoreState>();
     if state.is_running() {
-        if state.is_tun() && settings.tun {
-            core::reload_tun(&app, &settings).await?;
-        } else {
-            core::start(&app, &settings).await?;
+        let recovery_token = if config_changed || previous.system_proxy != settings.system_proxy {
+            let was_requested = app.state::<recovery::RecoveryState>().token().is_some();
+            let token = recovery::cancel(&app);
+            was_requested.then_some(token)
+        } else { None };
+        // Restore the previous port before replacing its listener. Any failed
+        // restart must leave the OS with a usable proxy configuration.
+        if config_changed {
+            release_system_proxy(&app, previous.listen_port).await;
         }
-        // The port may have moved or the user may have turned the system proxy
-        // off; without this the OS would keep pointing at a stale port.
-        reconcile_system_proxy(&app, &settings).await?;
+        let result = async {
+            if config_changed {
+                if state.is_tun() && settings.tun {
+                    core::reload_tun(&app, &settings).await?;
+                } else {
+                    core::start(&app, &settings).await?;
+                }
+            }
+            if config_changed || (!previous.system_proxy && settings.system_proxy && !settings.tun) {
+                health::verify_connection(settings.listen_port + 1).await?;
+            }
+            reconcile_system_proxy(&app, &settings).await
+        }
+        .await;
+        if let Err(err) = result {
+            recovery::cancel(&app);
+            teardown(&app, &settings).await;
+            return Err(err);
+        }
+        if let Some(token) = recovery_token {
+            recovery::activate(&app, token);
+        }
     }
     Ok(status_of(&app, settings).await)
 }
@@ -180,17 +219,23 @@ async fn snapshot_system_proxy(app: &AppHandle, port: u16) {
 /// Hands the system proxy back: restores the pre-Routeway configuration when we
 /// have one, otherwise just clears what we set.
 async fn release_system_proxy(app: &AppHandle, port: u16) {
-    let backup = settings::take_proxy_backup(app);
-    let _ = tauri::async_runtime::spawn_blocking(move || match backup {
+    let backup = settings::read_proxy_backup(app);
+    let result = tauri::async_runtime::spawn_blocking(move || match backup {
         Some(raw) => sysproxy::restore(&raw),
         None if sysproxy::is_active(port) => sysproxy::disable(),
         None => Ok(()),
     })
     .await;
+    // Retain the snapshot if restoration failed so a later cleanup can retry.
+    if matches!(result, Ok(Ok(()))) {
+        settings::clear_proxy_backup(app);
+    }
 }
 
 #[tauri::command]
 async fn set_language(app: AppHandle, language: String) -> Result<Status, String> {
+    let state = app.state::<ConnectionState>();
+    let _guard = state.0.lock().await;
     let mut settings = settings::load(&app);
     settings.language = language;
     settings::save(&app, &settings)?;
@@ -201,24 +246,33 @@ async fn set_language(app: AppHandle, language: String) -> Result<Status, String
 
 #[tauri::command]
 async fn connect(app: AppHandle) -> Result<Status, String> {
+    let token = recovery::cancel(&app);
+    let state = app.state::<ConnectionState>();
+    let _guard = state.0.lock().await;
+    if !app.state::<recovery::RecoveryState>().current(token) {
+        return Err(t!("err.cancelled"));
+    }
     let settings = settings::load(&app);
-    core::start(&app, &settings).await?;
-
-    if settings.tun {
-        release_system_proxy(&app, settings.listen_port).await;
-    } else if settings.system_proxy {
-        let port = settings.listen_port;
-        snapshot_system_proxy(&app, port).await;
-        let direct = settings.normalized_direct();
-        let result = tauri::async_runtime::spawn_blocking(move || sysproxy::enable(port, &direct))
-            .await
-            .map_err(|err| t!("err.apply_proxy", err = err))?;
-        if let Err(err) = result {
-            // Routing without a system proxy is useless; roll the core back so the
-            // UI never claims to be connected when nothing is routed.
-            core::halt(&app).await;
-            return Err(err);
+    release_system_proxy(&app, settings.listen_port).await;
+    let result = async {
+        core::start(&app, &settings).await?;
+        // An open local port does not prove DNS, TLS or VLESS is working.
+        // Verify the complete path before sending other applications through it.
+        health::verify_connection(settings.listen_port + 1).await?;
+        if !app.state::<recovery::RecoveryState>().current(token) {
+            return Err(t!("err.cancelled"));
         }
+        reconcile_system_proxy(&app, &settings).await
+    }
+    .await;
+    if let Err(err) = result {
+        teardown(&app, &settings).await;
+        return Err(err);
+    }
+
+    if !recovery::activate(&app, token) {
+        teardown(&app, &settings).await;
+        return Err(t!("err.cancelled"));
     }
 
     Ok(status_of(&app, settings).await)
@@ -226,9 +280,47 @@ async fn connect(app: AppHandle) -> Result<Status, String> {
 
 #[tauri::command]
 async fn disconnect(app: AppHandle) -> Result<Status, String> {
+    recovery::cancel(&app);
+    let state = app.state::<ConnectionState>();
+    let _guard = state.0.lock().await;
+    recovery::cancel(&app);
     let settings = settings::load(&app);
     teardown(&app, &settings).await;
     Ok(status_of(&app, settings).await)
+}
+
+#[tauri::command]
+async fn get_diagnostics(app: AppHandle) -> Result<diagnostics::Diagnostics, String> {
+    tauri::async_runtime::spawn_blocking(move || diagnostics::snapshot(&app))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+async fn restart_core(app: AppHandle) -> Result<Status, String> {
+    connect(app).await
+}
+
+#[tauri::command]
+async fn clean_core(app: AppHandle) -> Result<Status, String> {
+    recovery::cancel(&app);
+    let state = app.state::<ConnectionState>();
+    let _guard = state.0.lock().await;
+    recovery::cancel(&app);
+    let settings = settings::load(&app);
+    teardown(&app, &settings).await;
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || core::reap_orphan(&handle))
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(status_of(&app, settings).await)
+}
+
+#[tauri::command]
+async fn restart_app(app: AppHandle) -> Result<(), String> {
+    clean_core(app.clone()).await?;
+    app.request_restart();
+    Ok(())
 }
 
 #[tauri::command]
@@ -291,8 +383,8 @@ async fn reveal_config(app: AppHandle) -> Result<(), String> {
 
 /// Stops the core and hands the network back to the system. Always safe to call.
 async fn teardown(app: &AppHandle, settings: &Settings) {
-    core::halt(app).await;
     release_system_proxy(app, settings.listen_port).await;
+    core::halt(app).await;
 }
 
 struct TrayItems {
@@ -331,8 +423,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "quit" => {
                 let handle = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    let settings = settings::load(&handle);
-                    teardown(&handle, &settings).await;
+                    let _ = disconnect(handle.clone()).await;
                     handle.exit(0);
                 });
             }
@@ -358,6 +449,15 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        // Must run before other plugins and setup: a duplicate must not reap
+        // the active instance's core or restore its system proxy settings.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
@@ -367,8 +467,10 @@ pub fn run() {
             None,
         ))
         .manage(CoreState::default())
+        .manage(ConnectionState::default())
         .manage(startup::Startup::default())
         .manage(health::HealthState::default())
+        .manage(recovery::RecoveryState::default())
         .invoke_handler(tauri::generate_handler![
             initialize,
             get_status,
@@ -381,6 +483,10 @@ pub fn run() {
             disconnect,
             check_ip,
             get_health,
+            get_diagnostics,
+            restart_core,
+            clean_core,
+            restart_app,
             minimize_window,
             hide_window,
             reveal_config
@@ -417,10 +523,13 @@ pub fn run() {
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
+            recovery::cancel(handle);
             // Last chance to restore the system proxy; the async runtime is still
             // alive here, so block on the teardown.
             let handle = handle.clone();
             tauri::async_runtime::block_on(async move {
+                let connection = handle.state::<ConnectionState>();
+                let _guard = connection.0.lock().await;
                 let settings = settings::load(&handle);
                 teardown(&handle, &settings).await;
             });

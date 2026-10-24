@@ -1,0 +1,31 @@
+Routeway
+Copyright (C) 2026 Routeway contributors
+SPDX-License-Identifier: GPL-3.0-or-later
+
+Routeway is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option)
+any later version.
+
+Routeway is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See LICENSE for the full terms.
+
+Routeway source code and build instructions:
+https://github.com/sx-motive/routeway
+
+Bundled component: sing-box 1.14.3
+Copyright (C) 2022 by nekohasekai <contact-sagernet@sekai.icu>
+License: GNU GPL version 3 or later, with the upstream notice concerning
+the name of and association with sing-box. The complete upstream notice
+is preserved in licenses/sing-box-LICENSE.txt in the source repository
+and in sing-box-LICENSE.txt beside this notice in application resources.
+
+Source code for the bundled sing-box version:
+https://github.com/SagerNet/sing-box/tree/v1.14.3
+Upstream build instructions:
+https://sing-box.sagernet.org/installation/build-from-source/
+
+The bundled sing-box binary is obtained unmodified from upstream releases
+by scripts/fetch-core.mjs. Its upstream license and notices are retained.
+Other third-party components retain their respective licenses.

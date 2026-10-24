@@ -13,6 +13,10 @@ import {
   checkIp,
   connect,
   disconnect,
+  restartCore,
+  cleanCore,
+  restartApp,
+  type MaintenanceAction,
   getStatus,
   initialize,
   saveSettings,
@@ -66,6 +70,7 @@ export function App() {
         logStore.append(event.payload),
       ),
       listen<string>("core-exit", () => void getStatus().then(setStatus)),
+      listen("connection-changed", () => void getStatus().then(setStatus)),
     ]);
     return () => {
       void unlisten.then((fns) => fns.forEach((fn) => fn()));
@@ -110,6 +115,21 @@ export function App() {
     }
   }
 
+  async function maintainCore(action: MaintenanceAction) {
+    setError(null);
+    setBusy(action === "clean" ? "disconnecting" : "connecting");
+    setIps({});
+    try {
+      if (action === "app") await restartApp();
+      else setStatus(action === "clean" ? await cleanCore() : await restartCore());
+    } catch (err) {
+      setError(String(err));
+      setStatus(await getStatus());
+    } finally {
+      setBusy("idle");
+    }
+  }
+
   async function changeLanguage(next: typeof lang) {
     setLang(next);
     try {
@@ -148,6 +168,7 @@ export function App() {
   }
 
   const { settings, running, system_proxy_active, tun_active } = status;
+  const connectionRequested = running || Boolean(status.connection_requested);
   const working = busy !== "idle";
 
   const routed = [
@@ -212,7 +233,7 @@ export function App() {
               <span
                 className={[
                   "h-2 w-2 shrink-0",
-                  working ? "bg-warn pulse-dot" : running ? "bg-ok" : "bg-fg-muted/40",
+                  working || (connectionRequested && !running) ? "bg-warn pulse-dot" : running ? "bg-ok" : "bg-fg-muted/40",
                 ].join(" ")}
               />
               <div className="min-w-0 flex-1">
@@ -221,6 +242,8 @@ export function App() {
                     ? busy === "connecting"
                       ? t("status.connecting")
                       : t("status.disconnecting")
+                    : connectionRequested && !running
+                      ? t("recovery.recovering")
                     : running
                       ? tun_active
                         ? t("status.onTun")
@@ -229,7 +252,7 @@ export function App() {
                 </p>
               </div>
               <Switch
-                checked={running}
+                checked={connectionRequested}
                 disabled={working || !settings.server}
                 onCheckedChange={(on) => void toggle(on)}
                 aria-label={t("status.toggle")}
@@ -274,6 +297,7 @@ export function App() {
               ips={ips}
               probing={probing}
               probe={probe}
+              maintainCore={maintainCore}
             />
           </Suspense>
         </div>

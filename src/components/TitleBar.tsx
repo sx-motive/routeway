@@ -4,6 +4,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import { hideWindow, minimizeWindow, revealConfig } from "../lib/ipc";
 import { useI18n } from "../i18n";
 import type { Key } from "../i18n/en";
+import appIcon from "../assets/brand/64x64.png";
 
 export type Tab = "home" | "settings";
 
@@ -18,7 +19,10 @@ export function TitleBar({ tab, onTabChange }: { tab: Tab; onTabChange: (tab: Ta
 
   return (
     <div data-tauri-drag-region className="flex h-9 shrink-0 items-center px-2 select-none">
-      <span className="pr-3 pl-1 text-xs text-fg-muted/50">Routeway</span>
+      <span data-tauri-drag-region className="flex shrink-0 items-center pr-3 pl-1">
+        <img src={appIcon} alt="Routeway" width={20} height={20} draggable={false}
+          data-tauri-drag-region className="brand-logo size-5 shrink-0" />
+      </span>
       <nav className="flex h-full items-stretch">
         {TABS.map(({ id, label }) => (
           <button

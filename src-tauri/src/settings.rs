@@ -190,12 +190,15 @@ pub fn save_proxy_backup(app: &AppHandle, raw: &str) -> Result<(), String> {
     fs::write(&path, raw).map_err(|err| t!("err.save_proxy_backup", err = err))
 }
 
-/// Reads the snapshot and removes it — restoring is a one-shot operation.
-pub fn take_proxy_backup(app: &AppHandle) -> Option<String> {
+pub fn read_proxy_backup(app: &AppHandle) -> Option<String> {
     let path = proxy_backup_path(app).ok()?;
-    let raw = fs::read_to_string(&path).ok()?;
-    let _ = fs::remove_file(&path);
-    Some(raw)
+    fs::read_to_string(&path).ok()
+}
+
+pub fn clear_proxy_backup(app: &AppHandle) {
+    if let Ok(path) = proxy_backup_path(app) {
+        let _ = fs::remove_file(path);
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

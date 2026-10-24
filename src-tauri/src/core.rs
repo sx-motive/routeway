@@ -41,6 +41,10 @@ pub struct CoreState {
 }
 
 impl CoreState {
+    pub fn connection_id(&self) -> Option<u32> {
+        self.running.lock().ok()?.as_ref().map(Running::pid)
+    }
+
     pub fn is_running(&self) -> bool {
         self.running.lock().map(|r| r.is_some()).unwrap_or(false)
     }
@@ -97,6 +101,27 @@ impl CoreState {
         true
     }
 
+    async fn unexpected_exit(app: AppHandle, pid: u32, reason: String) {
+        let connection = app.state::<crate::ConnectionState>();
+        let _guard = connection.0.lock().await;
+        let state = app.state::<CoreState>();
+        // A deliberate stop or an old process exiting after a restart must not
+        // clear the new connection or restore its proxy configuration.
+        if state.release(pid) {
+            forget_pid(&app);
+            let settings = crate::settings::load(&app);
+            let recovery = app.state::<crate::recovery::RecoveryState>();
+            if recovery.token().is_none_or(|token| !recovery.eligible(token)) || settings.tun {
+                crate::release_system_proxy(&app, settings.listen_port).await;
+            }
+            if settings.tun && recovery.token().is_some() {
+                state.recovery_log(&app, t!("recovery.tun_manual"));
+            }
+            recovery.wake.notify_one();
+            state.record_exit(&app, reason);
+        }
+    }
+
     fn clear_log(&self) {
         if let Ok(mut log) = self.log.lock() {
             log.clear();
@@ -116,6 +141,13 @@ impl CoreState {
     fn record_exit(&self, app: &AppHandle, reason: String) {
         self.push_event(app, LogEvent::stopped(reason.clone()));
         let _ = app.emit("core-exit", reason);
+    }
+
+    pub fn recovery_log(&self, app: &AppHandle, message: String) {
+        let mut event = LogEvent::stopped(message);
+        event.kind = crate::corelog::Kind::Other;
+        event.level = crate::corelog::Level::Info;
+        self.push_event(app, event);
     }
 
     fn push_event(&self, app: &AppHandle, event: LogEvent) {
@@ -230,6 +262,24 @@ fn tun_paths(app: &AppHandle) -> Result<HostPaths, String> {
     Ok(HostPaths::in_dir(dir))
 }
 
+pub fn diagnostic_pids(app: &AppHandle) -> Vec<(u32, &'static str)> {
+    let mut pids = Vec::new();
+    if let Some(pid) = app.state::<CoreState>().connection_id() {
+        let role = if app.state::<CoreState>().is_tun() { "host" } else { "core" };
+        pids.push((pid, role));
+    }
+    if let Some(pid) = pid_path(app).ok()
+        .and_then(|path| fs::read_to_string(path).ok())
+        .and_then(|raw| raw.trim().parse().ok())
+    {
+        pids.push((pid, "core"));
+    }
+    if let Some(pid) = tun_paths(app).ok().and_then(|paths| paths.host_pid()) {
+        pids.push((pid, "host"));
+    }
+    pids
+}
+
 async fn ensure_ports_free(settings: &Settings) -> Result<(), String> {
     // Claiming the port must be verified *before* spawning: otherwise a stale
     // listener makes the readiness check below succeed against someone else's
@@ -264,15 +314,27 @@ async fn await_ready(app: &AppHandle, port: u16, timeout: Duration) -> Result<()
 
 /// Stops any running core, regenerates the config and starts a fresh instance.
 pub async fn start(app: &AppHandle, settings: &Settings) -> Result<(), String> {
+    start_inner(app, settings, true).await
+}
+
+pub async fn restart_for_recovery(app: &AppHandle, settings: &Settings) -> Result<(), String> {
+    if settings.tun {
+        reload_tun(app, settings).await
+    } else {
+        start_inner(app, settings, false).await
+    }
+}
+
+async fn start_inner(app: &AppHandle, settings: &Settings, clear_log: bool) -> Result<(), String> {
     halt(app).await;
     reap_orphan(app);
     ensure_ports_free(settings).await?;
     write_config(app, settings)?;
 
     if settings.tun {
-        start_tun(app, settings).await
+        start_tun(app, settings, clear_log).await
     } else {
-        start_sidecar(app, settings).await
+        start_sidecar(app, settings, clear_log).await
     }
 }
 
@@ -286,7 +348,7 @@ pub async fn reload_tun(app: &AppHandle, settings: &Settings) -> Result<(), Stri
     await_ready(app, settings.listen_port, Duration::from_secs(15)).await
 }
 
-async fn start_sidecar(app: &AppHandle, settings: &Settings) -> Result<(), String> {
+async fn start_sidecar(app: &AppHandle, settings: &Settings, clear_log: bool) -> Result<(), String> {
     let config = config_path(app)?;
     let config_arg = config
         .to_str()
@@ -306,7 +368,7 @@ async fn start_sidecar(app: &AppHandle, settings: &Settings) -> Result<(), Strin
         let state = app.state::<CoreState>();
         remember_pid(app, pid);
         state.install(Running::Sidecar(child));
-        state.clear_log();
+        if clear_log { state.clear_log(); }
     }
 
     let handle = app.clone();
@@ -320,11 +382,14 @@ async fn start_sidecar(app: &AppHandle, settings: &Settings) -> Result<(), Strin
                     }
                 }
                 CommandEvent::Terminated(payload) => {
-                    if state.release(pid) {
-                        forget_pid(&handle);
-                    }
                     let code = payload.code.map(|c| c.to_string()).unwrap_or_else(|| "?".into());
-                    state.record_exit(&handle, t!("core.exited_code", code = code));
+                    let reason = t!("core.exited_code", code = code);
+                    CoreState::unexpected_exit(
+                        handle.clone(),
+                        pid,
+                        reason,
+                    )
+                    .await;
                     break;
                 }
                 _ => {}
@@ -335,7 +400,7 @@ async fn start_sidecar(app: &AppHandle, settings: &Settings) -> Result<(), Strin
     await_ready(app, settings.listen_port, Duration::from_secs(5)).await
 }
 
-async fn start_tun(app: &AppHandle, settings: &Settings) -> Result<(), String> {
+async fn start_tun(app: &AppHandle, settings: &Settings, clear_log: bool) -> Result<(), String> {
     let paths = tun_paths(app)?;
     let dir = paths
         .config
@@ -350,7 +415,7 @@ async fn start_tun(app: &AppHandle, settings: &Settings) -> Result<(), String> {
     {
         let state = app.state::<CoreState>();
         state.install(Running::Tun { host_pid });
-        state.clear_log();
+        if clear_log { state.clear_log(); }
     }
 
     let handle = app.clone();
@@ -380,8 +445,11 @@ fn follow_tun_host(app: AppHandle, host_pid: u32, log: PathBuf) {
         }
         if !tunhost::is_alive(host_pid) {
             publish(read_new_lines(&log, &mut offset, &mut partial));
-            state.release(host_pid);
-            state.record_exit(&app, t!("core.exited"));
+            tauri::async_runtime::spawn(CoreState::unexpected_exit(
+                app.clone(),
+                host_pid,
+                t!("core.exited"),
+            ));
             return;
         }
     }
@@ -419,8 +487,10 @@ fn read_new_lines(path: &Path, offset: &mut u64, partial: &mut String) -> Vec<St
 
 /// Blocks for up to a few seconds in TUN mode while the elevated host winds down.
 pub fn stop(app: &AppHandle) {
-    if let Some(Running::Sidecar(child)) = app.state::<CoreState>().take() {
-        let _ = child.kill();
+    match app.state::<CoreState>().take() {
+        Some(Running::Sidecar(child)) => { let _ = child.kill(); }
+        Some(Running::Tun { .. }) => {}
+        None => reap_orphan(app),
     }
     forget_pid(app);
     if let Ok(paths) = tun_paths(app) {
@@ -443,4 +513,30 @@ fn wait_until_listening(port: u16, timeout: Duration) -> bool {
         std::thread::sleep(Duration::from_millis(150));
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CoreState, Running};
+
+    #[test]
+    fn an_old_exit_cannot_release_a_replacement_connection() {
+        let state = CoreState::default();
+        state.install(Running::Tun { host_pid: 100 });
+        state.take();
+        state.install(Running::Tun { host_pid: 200 });
+        assert!(!state.release(100));
+        assert_eq!(state.connection_id(), Some(200));
+        assert!(state.release(200));
+        assert!(!state.is_running());
+        assert!(!state.release(200));
+    }
+
+    #[test]
+    fn a_deliberate_stop_does_not_trigger_unexpected_exit_cleanup() {
+        let state = CoreState::default();
+        state.install(Running::Tun { host_pid: 100 });
+        state.take();
+        assert!(!state.release(100));
+    }
 }

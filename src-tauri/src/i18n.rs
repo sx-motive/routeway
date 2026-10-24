@@ -70,6 +70,20 @@ macro_rules! t {
 type Row = (&'static str, &'static str, &'static str, &'static str);
 
 const TABLE: &[Row] = &[
+    ("recovery.checking", "Connection check failed; confirming the outage.", "Проверка соединения не прошла; проверяем повторно.", "连接检查失败，正在确认故障。"),
+    ("recovery.unavailable", "The server is unavailable. Recovery attempts are rate limited; monitoring continues.", "Сервер недоступен. Частота попыток восстановления ограничена; проверки продолжаются.", "服务器不可用。恢复尝试频率受限，监控继续。"),
+    ("recovery.network_wait", "Direct network checks also failed; waiting without restarting the core.", "Прямые проверки сети тоже не прошли; ожидаем без перезапуска ядра.", "直连网络检查也失败，等待网络恢复，不重启核心。"),
+    ("recovery.tun_manual", "TUN host stopped. Reconnect manually to authorize its launch.", "TUN-хост остановлен. Подключитесь вручную, чтобы разрешить его запуск.", "TUN 主机已停止，请手动重新连接以授权启动。"),
+    ("recovery.restarting", "Restoring connection: restarting the core.", "Восстановление соединения: перезапуск ядра.", "正在恢复连接：重启核心。"),
+    ("recovery.started", "Core restarted. Checking the server connection.", "Ядро перезапущено. Проверяем соединение с сервером.", "核心已重启，正在检查服务器连接。"),
+    ("recovery.failed", "Automatic recovery failed: {err}", "Автоматическое восстановление не удалось: {err}", "自动恢复失败：{err}"),
+    ("recovery.restored", "Server connection restored.", "Соединение с сервером восстановлено.", "服务器连接已恢复。"),
+    (
+        "err.tunnel_unavailable",
+        "The server connection check failed. {err}",
+        "Проверка соединения через сервер не прошла. {err}",
+        "服务器连接检查失败。{err}",
+    ),
     (
         "tray.show",
         "Open Routeway",

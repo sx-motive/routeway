@@ -1,0 +1,5 @@
+Generated with the built-in image_gen tool.
+Edit reference: icon-source.png (approved concept 04).
+Output: logo-monochrome-source.png, transparent PNG.
+
+Create a BLACK INK logo on a TRANSPARENT background, based on the attached anime mascot. Recreate the same head and hairstyle as a clean professional flat vector-style stencil. Important ink mapping: the original WHITE hair and WHITE eye/face-outline/smile shapes become SOLID BLACK ink. The original DARK background, DARK face and DARK pupil become entirely TRANSPARENT empty space. The red hair clip also becomes BLACK. Thus this is the negative/inverted monochrome version of the supplied design, with dark hair surrounding a transparent face. Preserve the head pose, asymmetric bob and single visible eye. Use clean bold solid-black filled shapes, smooth curves, no gray, no white ink, no textures, no gradients, no sketch lines, no speckles. The background and face negative spaces must have real zero alpha. Square icon framing, similar margins. This is a black silhouette stencil with cutout facial details, not a cutout of a painted portrait. No text.

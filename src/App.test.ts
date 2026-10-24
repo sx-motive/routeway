@@ -12,6 +12,8 @@ const { handlers, ipc } = vi.hoisted(() => ({
     checkIp: vi.fn(), getRules: vi.fn(), saveRules: vi.fn(),
     saveSettings: vi.fn(), setLanguage: vi.fn(), connect: vi.fn(), disconnect: vi.fn(),
     revealRules: vi.fn(), revealConfig: vi.fn(), minimizeWindow: vi.fn(), hideWindow: vi.fn(),
+    getDiagnostics: vi.fn(), restartCore: vi.fn(), cleanCore: vi.fn(), restartApp: vi.fn(),
+    openExternal: vi.fn(),
   },
 }));
 vi.mock("./lib/ipc", () => ipc);
@@ -42,8 +44,13 @@ beforeEach(() => {
   handlers.clear();
   vi.resetAllMocks();
   ipc.initialize.mockResolvedValue({ status, error: null });
-  ipc.getHealth.mockResolvedValue({ mode: null, samples: [] });
+  ipc.getHealth.mockResolvedValue({ tcp: [], tunnel: [], tcp_available: true, tunnel_active: false });
   ipc.getStatus.mockResolvedValue(status);
+  ipc.openExternal.mockResolvedValue(undefined);
+  ipc.getDiagnostics.mockResolvedValue({
+    processes: [{ pid: 123, parent_pid: 1, name: "routeway.exe", role: "app" }],
+    core_running: true, system_proxy_active: true, tun_active: false, listen_port: 2080,
+  });
   ipc.getRules.mockResolvedValue('{"apps":[],"domains":[],"direct":[]}');
   container = document.createElement("div");
   document.body.append(container);
@@ -61,7 +68,7 @@ async function mount() {
 }
 
 async function click(text: string) {
-  const button = Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.trim() === text);
+  const button = Array.from(document.querySelectorAll("button")).find((button) => (button.getAttribute("aria-label") ?? button.textContent?.trim()) === text);
   expect(button, `button ${text}`).toBeTruthy();
   await act(async () => button!.click());
   if (text === "Settings") {
@@ -93,10 +100,10 @@ it("does not overwrite a live health event with an older snapshot", async () => 
   ipc.getHealth.mockReturnValue(new Promise<Health>((done) => { resolve = done; }));
   await mount();
   await act(async () => handlers.get("health")!({ payload: {
-    mode: "tcp", samples: [{ ms: 42, error: null, at: 1000 }],
+    tcp: [{ ms: 42, error: null, at: 1000 }], tunnel: [], tcp_available: true, tunnel_active: false,
   } }));
   expect(container.textContent).toContain(translate("en", "health.ms", { ms: 42 }));
-  await act(async () => resolve({ mode: null, samples: [] }));
+  await act(async () => resolve({ tcp: [], tunnel: [], tcp_available: true, tunnel_active: false }));
   expect(container.textContent).toContain(translate("en", "health.ms", { ms: 42 }));
 });
 
@@ -133,4 +140,134 @@ it("opens the lazy rules dialog and reports load errors without saving unloaded 
   expect(ipc.saveRules).not.toHaveBeenCalled();
   await click("Cancel");
   expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
+
+it("restarts the core once and refreshes the process list after completion", async () => {
+  let finish!: (next: Status) => void;
+  ipc.restartCore.mockReturnValue(new Promise<Status>((resolve) => { finish = resolve; }));
+  await mount();
+  await click("Settings");
+  expect(container.textContent).toContain("routeway.exe");
+  await click(translate("en", "debug.restartCore"));
+  const restart = Array.from(container.querySelectorAll("button"))
+    .find((button) => button.getAttribute("aria-label") === translate("en", "debug.restartCore"))!;
+  expect(restart.disabled).toBe(true);
+  await act(async () => restart.click());
+  expect(ipc.restartCore).toHaveBeenCalledTimes(1);
+  ipc.getDiagnostics.mockResolvedValue({
+    processes: [{ pid: 456, parent_pid: 123, name: "sing-box.exe", role: "core" }],
+    core_running: true, system_proxy_active: true, tun_active: false, listen_port: 2080,
+  });
+  await act(async () => finish(status));
+  expect(container.textContent).toContain("sing-box.exe");
+  expect(container.textContent).toContain("456");
+  expect(restart.disabled).toBe(false);
+});
+
+it("cleanup updates connection state without restarting the core", async () => {
+  ipc.cleanCore.mockResolvedValue({ ...status, running: false, system_proxy_active: false });
+  await mount();
+  await click("Settings");
+  await click(translate("en", "debug.clean"));
+  expect(ipc.cleanCore).toHaveBeenCalledOnce();
+  expect(ipc.restartCore).not.toHaveBeenCalled();
+  await click(translate("en", "tab.home"));
+  expect(container.textContent).toContain(translate("en", "status.off"));
+});
+
+it("shows a failed maintenance action and keeps the controls usable", async () => {
+  ipc.restartCore.mockRejectedValue(new Error("Server check failed"));
+  await mount();
+  await click("Settings");
+  await click(translate("en", "debug.restartCore"));
+  expect(container.textContent).toContain("Server check failed");
+  const cleanup = Array.from(container.querySelectorAll("button"))
+    .find((button) => button.getAttribute("aria-label") === translate("en", "debug.clean"))!;
+  expect(cleanup.disabled).toBe(false);
+});
+
+it("shows recovery progress from the existing health stream", async () => {
+  await mount();
+  await act(async () => handlers.get("health")!({ payload: {
+    recovery: "recovering", tcp: [], tunnel: [{ ms: null, error: "timeout", at: 1000 }], tcp_available: true, tunnel_active: true,
+  } }));
+  expect(container.textContent).toContain(translate("en", "recovery.recovering"));
+  await act(async () => handlers.get("health")!({ payload: {
+    recovery: "waiting_network", tcp: [], tunnel: [{ ms: null, error: "timeout", at: 2000 }], tcp_available: true, tunnel_active: true,
+  } }));
+  expect(container.textContent).toContain(translate("en", "recovery.waiting_network"));
+});
+
+it("allows manual disconnection while the core is down and recovery is pending", async () => {
+  ipc.initialize.mockResolvedValue({
+    status: { ...status, running: false, connection_requested: true }, error: null,
+  });
+  ipc.disconnect.mockResolvedValue({ ...status, running: false, connection_requested: false });
+  await mount();
+  const toggle = container.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+  await act(async () => toggle.click());
+  expect(ipc.disconnect).toHaveBeenCalledOnce();
+  expect(ipc.connect).not.toHaveBeenCalled();
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+});
+
+it("refreshes connection state after background recovery", async () => {
+  await mount();
+  ipc.getStatus.mockResolvedValue({ ...status, running: false, connection_requested: true });
+  await act(async () => handlers.get("connection-changed")!({ payload: null }));
+  expect(container.textContent).toContain(translate("en", "recovery.recovering"));
+});
+
+it("shows TCP and tunnel measurements and their failure rates independently", async () => {
+  ipc.getHealth.mockResolvedValue({
+    tcp: [{ ms: 80, error: null, at: 1000 }],
+    tunnel: [{ ms: null, error: "timeout", at: 1000 }],
+    tcp_available: true, tunnel_active: true,
+  });
+  await mount();
+  expect(container.textContent).toContain(translate("en", "health.modeTcp"));
+  expect(container.textContent).toContain(translate("en", "health.modeTunnel"));
+  expect(container.textContent).toContain(translate("en", "health.ms", { ms: 80 }));
+  expect(container.textContent).toContain(translate("en", "health.failures", { pct: 0 }));
+  expect(container.textContent).toContain(translate("en", "health.failures", { pct: 100 }));
+  await act(async () => handlers.get("health")!({ payload: {
+    tcp: [{ ms: 82, error: null, at: 2000 }],
+    tunnel: [{ ms: 260, error: null, at: 2000 }],
+    tcp_available: true, tunnel_active: true,
+  } }));
+  expect(container.textContent).toContain(translate("en", "health.ms", { ms: 82 }));
+  expect(container.textContent).toContain(translate("en", "health.ms", { ms: 260 }));
+});
+
+it("does not display old tunnel latency after disconnection", async () => {
+  ipc.getHealth.mockResolvedValue({
+    tcp: [{ ms: 80, error: null, at: 1000 }],
+    tunnel: [{ ms: 260, error: null, at: 1000 }],
+    tcp_available: true, tunnel_active: false,
+  });
+  await mount();
+  expect(container.textContent).toContain(translate("en", "health.ms", { ms: 80 }));
+  expect(container.textContent).not.toContain(translate("en", "health.ms", { ms: 260 }));
+  expect(container.textContent).toContain(translate("en", "health.afterConnect"));
+});
+
+it("opens project and license links through the native opener", async () => {
+  await mount();
+  await click("Settings");
+  for (const url of ["https://github.com/sx-motive/routeway", "https://www.gnu.org/licenses/gpl-3.0.html"]) {
+    const link = container.querySelector<HTMLAnchorElement>(`a[href="${url}"]`)!;
+    await act(async () => link.click());
+    expect(ipc.openExternal).toHaveBeenLastCalledWith(url);
+  }
+  expect(ipc.openExternal).toHaveBeenCalledTimes(2);
+});
+
+it("reports a native link-opening error in settings", async () => {
+  ipc.openExternal.mockRejectedValue(new Error("No default browser"));
+  await mount();
+  await click("Settings");
+  const link = container.querySelector<HTMLAnchorElement>('a[href="https://github.com/sx-motive/routeway"]')!;
+  await act(async () => link.click());
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("No default browser");
 });

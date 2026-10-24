@@ -18,6 +18,7 @@ export interface Settings {
 export interface Status {
   settings: Settings;
   running: boolean;
+  connection_requested?: boolean;
   system_proxy_active: boolean;
   tun_active: boolean;
   log: LogEvent[];
@@ -44,6 +45,21 @@ export const connect = () => invoke<Status>("connect");
 
 export const disconnect = () => invoke<Status>("disconnect");
 
+export type MaintenanceAction = "restart" | "clean" | "app";
+
+export interface Diagnostics {
+  processes: { pid: number; parent_pid: number; name: string; role: "app" | "core" | "host" | "webview" | "child" }[];
+  core_running: boolean;
+  system_proxy_active: boolean;
+  tun_active: boolean;
+  listen_port: number;
+}
+
+export const getDiagnostics = () => invoke<Diagnostics>("get_diagnostics");
+export const restartCore = () => invoke<Status>("restart_core");
+export const cleanCore = () => invoke<Status>("clean_core");
+export const restartApp = () => invoke<void>("restart_app");
+
 export const checkIp = (throughServer: boolean) =>
   invoke<string>("check_ip", { throughServer });
 
@@ -54,13 +70,19 @@ export interface Sample {
 }
 
 export interface Health {
-  mode: "tcp" | "tunnel" | null;
-  samples: Sample[];
+  tcp: Sample[];
+  tunnel: Sample[];
+  tcp_available: boolean;
+  tunnel_active: boolean;
+  recovery?: "idle" | "healthy" | "checking" | "recovering" | "waiting_network" | "unavailable";
 }
 
 export const getHealth = () => invoke<Health>("get_health");
 
 export const revealConfig = () => invoke<void>("reveal_config");
+
+export const openExternal = (url: string) =>
+  invoke<void>("plugin:opener|open_url", { url });
 
 // Only these two window operations are needed; keep the full Window API out of the bundle.
 export const minimizeWindow = () => invoke<void>("minimize_window");
