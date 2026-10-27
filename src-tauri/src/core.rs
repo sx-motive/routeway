@@ -250,8 +250,15 @@ pub fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 pub fn write_config(app: &AppHandle, settings: &Settings) -> Result<PathBuf, String> {
-    let config = singbox::build_config(settings)?;
+    let mut config = singbox::build_config(settings)?;
     let path = config_path(app)?;
+    config["experimental"] = serde_json::json!({
+        "cache_file": {
+            "enabled": true,
+            "path": path.with_file_name("cache.db"),
+            "store_dns": true
+        }
+    });
     let body = serde_json::to_string_pretty(&config)
         .map_err(|err| t!("err.serialize_config", err = err))?;
     fs::write(&path, body).map_err(|err| t!("err.write_config", err = err))?;

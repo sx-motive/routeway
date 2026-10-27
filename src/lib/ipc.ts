@@ -13,6 +13,7 @@ export interface Settings {
   language: string;
   autostart: boolean;
   auto_connect: boolean;
+  verbose_log: boolean;
 }
 
 export interface Status {

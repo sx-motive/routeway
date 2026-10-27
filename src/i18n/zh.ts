@@ -136,6 +136,8 @@ export const zh: Dict = {
   "settings.portLocked": "请先关闭路由再修改端口",
   "settings.autostart": "系统启动时运行",
   "settings.autoConnect": "启动应用时自动连接服务器",
+  "settings.verboseLog": "详细核心日志",
+  "settings.verboseLogHint": "记录每个连接及其应用。适合排查路由问题；连接繁忙时会增加负载。",
 
   "check.title": "检测",
   "check.run": "检测 IP",

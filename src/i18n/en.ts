@@ -142,6 +142,8 @@ export const en = {
   "settings.portLocked": "Turn routing off to change the port",
   "settings.autostart": "Launch at system startup",
   "settings.autoConnect": "Automatically connect to the server on launch",
+  "settings.verboseLog": "Detailed core log",
+  "settings.verboseLogHint": "Logs every connection with its app. Useful when something does not route as expected; adds load on busy machines.",
 
   "check.title": "Check",
   "check.run": "Check IP",

@@ -68,6 +68,8 @@ pub struct Settings {
     pub autostart: bool,
     #[serde(default)]
     pub auto_connect: bool,
+    #[serde(default)]
+    pub verbose_log: bool,
 }
 
 impl Default for Settings {
@@ -83,6 +85,7 @@ impl Default for Settings {
             language: default_language(),
             autostart: false,
             auto_connect: false,
+            verbose_log: false,
         }
     }
 }

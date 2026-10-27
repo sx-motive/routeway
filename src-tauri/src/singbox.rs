@@ -56,14 +56,20 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
 
     // Route rules are ordered: sniff first so later rules can see the hostname,
     // then DNS hijack, then private IPs direct, then the user's domain list.
-    let mut route_rules = vec![
-        json!({ "action": "sniff" }),
+    let mut route_rules = vec![json!({ "action": "sniff" })];
+    if settings.tun {
+        // Windows broadcasts NetBIOS, mDNS and multicast on every adapter; under
+        // auto_route that chatter would otherwise churn through the core.
+        route_rules.push(json!({ "network": ["udp"], "port": [135, 137, 138, 139, 5353], "action": "reject" }));
+        route_rules.push(json!({ "ip_cidr": ["224.0.0.0/3", "ff00::/8"], "action": "reject" }));
+    }
+    route_rules.extend([
         json!({ "protocol": "dns", "action": "hijack-dns" }),
         json!({ "ip_is_private": true, "outbound": "direct" }),
         // Anything arriving on the probe port is forced through the server. The UI
         // uses it to answer "is the server alive" without touching the domain list.
         json!({ "inbound": "probe", "outbound": "proxy" }),
-    ];
+    ]);
     let mut dns_rules: Vec<Value> = Vec::new();
 
     let direct = settings.normalized_direct();
@@ -129,9 +135,9 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
     };
 
     Ok(json!({
-        // Info is what carries the per-connection process and destination that
-        // the log view needs to explain a failure; the app filters it down.
-        "log": { "level": "info", "timestamp": true },
+        // Info carries the per-connection process and destination that explain a
+        // failure, but logs every connection, so it is opt-in.
+        "log": { "level": if settings.verbose_log { "info" } else { "warning" }, "timestamp": true },
         "dns": {
             "servers": [
                 { "type": "https", "tag": "dns-proxy", "server": "1.1.1.1", "detour": "proxy" },
@@ -277,9 +283,38 @@ mod tests {
     fn process_lookup_is_on_so_the_log_can_name_apps() {
         let cfg = build_config(&settings_with(&["youtube.com"])).unwrap();
         assert_eq!(cfg["route"]["find_process"], true);
-        assert_eq!(cfg["log"]["level"], "info");
         let rules = cfg["route"]["rules"].as_array().unwrap();
         assert!(rules.iter().all(|r| r["process_name"].is_null()));
+    }
+
+    #[test]
+    fn per_connection_logging_is_opt_in() {
+        let mut settings = settings_with(&["youtube.com"]);
+        assert_eq!(build_config(&settings).unwrap()["log"]["level"], "warning");
+        settings.verbose_log = true;
+        assert_eq!(build_config(&settings).unwrap()["log"]["level"], "info");
+    }
+
+    #[test]
+    fn tun_rejects_broadcast_chatter_before_dns_hijack() {
+        let mut settings = settings_with(&["youtube.com"]);
+        let proxy_rules = build_config(&settings).unwrap()["route"]["rules"].clone();
+        assert!(proxy_rules.as_array().unwrap().iter().all(|r| r["action"] != "reject"));
+
+        settings.tun = true;
+        let cfg = build_config(&settings).unwrap();
+        let rules = cfg["route"]["rules"].as_array().unwrap();
+        let hijack = rules.iter().position(|r| r["action"] == "hijack-dns").unwrap();
+        let rejects: Vec<usize> = rules
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r["action"] == "reject")
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(rejects.len(), 2);
+        assert!(rejects.iter().all(|&i| i < hijack));
+        assert!(rules.iter().any(|r| r["port"].as_array().is_some_and(|p| p.contains(&5353.into()))));
+        assert!(rules.iter().any(|r| r["ip_cidr"][0] == "224.0.0.0/3"));
     }
 
     #[test]

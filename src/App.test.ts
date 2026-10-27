@@ -35,7 +35,7 @@ const status: Status = {
   settings: {
     server: { label: "Test", address: "example.org", port: 443, uuid: "test", flow: "", sni: "", public_key: "", short_id: "", fingerprint: "chrome" },
     domains: [], processes: [], direct: [], listen_port: 2080,
-    system_proxy: true, tun: false, language: "en", autostart: false, auto_connect: false,
+    system_proxy: true, tun: false, language: "en", autostart: false, auto_connect: false, verbose_log: false,
   },
 };
 

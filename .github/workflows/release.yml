@@ -64,6 +64,18 @@ jobs:
           releaseBody: "Установщик не подписан — при первом запуске macOS/Windows покажут предупреждение. Автообновление подписано ключом проекта."
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: true
-          updaterJsonPreferNsis: true
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
+
+  updater-json:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/updater-json.mjs ${{ github.ref_name }}

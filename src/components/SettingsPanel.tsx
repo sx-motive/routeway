@@ -89,6 +89,18 @@ export default function SettingsPanel({
               />
             }
           />
+          <Row
+            label={t("settings.verboseLog")}
+            hint={t("settings.verboseLogHint")}
+            control={
+              <Switch
+                checked={settings.verbose_log}
+                disabled={working}
+                onCheckedChange={(on) => void persist({ ...settings, verbose_log: on })}
+                aria-label={t("settings.verboseLog")}
+              />
+            }
+          />
         </Rows>
       </Card>
 
