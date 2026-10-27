@@ -70,14 +70,12 @@ export interface Sample {
 }
 
 export interface Health {
-  tcp: Sample[];
   tunnel: Sample[];
-  tcp_available: boolean;
   tunnel_active: boolean;
-  recovery?: "idle" | "healthy" | "checking" | "recovering" | "waiting_network" | "unavailable";
 }
 
 export const getHealth = () => invoke<Health>("get_health");
+export const checkHealth = () => invoke<Health>("check_health");
 
 export const revealConfig = () => invoke<void>("reveal_config");
 

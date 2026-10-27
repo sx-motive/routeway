@@ -8,7 +8,7 @@ import type { Health, Status } from "./lib/ipc";
 const { handlers, ipc } = vi.hoisted(() => ({
   handlers: new Map<string, (event: { payload: unknown }) => void>(),
   ipc: {
-    initialize: vi.fn(), getHealth: vi.fn(), getStatus: vi.fn(),
+    initialize: vi.fn(), getHealth: vi.fn(), checkHealth: vi.fn(), getStatus: vi.fn(),
     checkIp: vi.fn(), getRules: vi.fn(), saveRules: vi.fn(),
     saveSettings: vi.fn(), setLanguage: vi.fn(), connect: vi.fn(), disconnect: vi.fn(),
     revealRules: vi.fn(), revealConfig: vi.fn(), minimizeWindow: vi.fn(), hideWindow: vi.fn(),
@@ -44,7 +44,7 @@ beforeEach(() => {
   handlers.clear();
   vi.resetAllMocks();
   ipc.initialize.mockResolvedValue({ status, error: null });
-  ipc.getHealth.mockResolvedValue({ tcp: [], tunnel: [], tcp_available: true, tunnel_active: false });
+  ipc.getHealth.mockResolvedValue({ tunnel: [], tunnel_active: false });
   ipc.getStatus.mockResolvedValue(status);
   ipc.openExternal.mockResolvedValue(undefined);
   ipc.getDiagnostics.mockResolvedValue({
@@ -100,10 +100,10 @@ it("does not overwrite a live health event with an older snapshot", async () => 
   ipc.getHealth.mockReturnValue(new Promise<Health>((done) => { resolve = done; }));
   await mount();
   await act(async () => handlers.get("health")!({ payload: {
-    tcp: [{ ms: 42, error: null, at: 1000 }], tunnel: [], tcp_available: true, tunnel_active: false,
+    tunnel: [{ ms: 42, error: null, at: 1000 }], tunnel_active: true,
   } }));
   expect(container.textContent).toContain(translate("en", "health.ms", { ms: 42 }));
-  await act(async () => resolve({ tcp: [], tunnel: [], tcp_available: true, tunnel_active: false }));
+  await act(async () => resolve({ tunnel: [], tunnel_active: false }));
   expect(container.textContent).toContain(translate("en", "health.ms", { ms: 42 }));
 });
 
@@ -186,18 +186,6 @@ it("shows a failed maintenance action and keeps the controls usable", async () =
   expect(cleanup.disabled).toBe(false);
 });
 
-it("shows recovery progress from the existing health stream", async () => {
-  await mount();
-  await act(async () => handlers.get("health")!({ payload: {
-    recovery: "recovering", tcp: [], tunnel: [{ ms: null, error: "timeout", at: 1000 }], tcp_available: true, tunnel_active: true,
-  } }));
-  expect(container.textContent).toContain(translate("en", "recovery.recovering"));
-  await act(async () => handlers.get("health")!({ payload: {
-    recovery: "waiting_network", tcp: [], tunnel: [{ ms: null, error: "timeout", at: 2000 }], tcp_available: true, tunnel_active: true,
-  } }));
-  expect(container.textContent).toContain(translate("en", "recovery.waiting_network"));
-});
-
 it("allows manual disconnection while the core is down and recovery is pending", async () => {
   ipc.initialize.mockResolvedValue({
     status: { ...status, running: false, connection_requested: true }, error: null,
@@ -219,37 +207,42 @@ it("refreshes connection state after background recovery", async () => {
   expect(container.textContent).toContain(translate("en", "recovery.recovering"));
 });
 
-it("shows TCP and tunnel measurements and their failure rates independently", async () => {
+it("shows tunnel latency and its failure rate", async () => {
   ipc.getHealth.mockResolvedValue({
-    tcp: [{ ms: 80, error: null, at: 1000 }],
     tunnel: [{ ms: null, error: "timeout", at: 1000 }],
-    tcp_available: true, tunnel_active: true,
+    tunnel_active: true,
   });
   await mount();
-  expect(container.textContent).toContain(translate("en", "health.modeTcp"));
   expect(container.textContent).toContain(translate("en", "health.modeTunnel"));
-  expect(container.textContent).toContain(translate("en", "health.ms", { ms: 80 }));
-  expect(container.textContent).toContain(translate("en", "health.failures", { pct: 0 }));
   expect(container.textContent).toContain(translate("en", "health.failures", { pct: 100 }));
   await act(async () => handlers.get("health")!({ payload: {
-    tcp: [{ ms: 82, error: null, at: 2000 }],
-    tunnel: [{ ms: 260, error: null, at: 2000 }],
-    tcp_available: true, tunnel_active: true,
+    tunnel: [{ ms: null, error: "timeout", at: 1000 }, { ms: 260, error: null, at: 2000 }],
+    tunnel_active: true,
   } }));
-  expect(container.textContent).toContain(translate("en", "health.ms", { ms: 82 }));
   expect(container.textContent).toContain(translate("en", "health.ms", { ms: 260 }));
+  expect(container.textContent).toContain(translate("en", "health.failures", { pct: 50 }));
+});
+
+it("checks the tunnel on demand", async () => {
+  ipc.getHealth.mockResolvedValue({ tunnel: [], tunnel_active: true });
+  ipc.checkHealth.mockResolvedValue({ tunnel: [], tunnel_active: true });
+  await mount();
+  const button = container.querySelector<HTMLButtonElement>(
+    `button[aria-label="${translate("en", "health.checkNow")}"]`,
+  )!;
+  await act(async () => button.click());
+  expect(ipc.checkHealth).toHaveBeenCalledOnce();
 });
 
 it("does not display old tunnel latency after disconnection", async () => {
   ipc.getHealth.mockResolvedValue({
-    tcp: [{ ms: 80, error: null, at: 1000 }],
     tunnel: [{ ms: 260, error: null, at: 1000 }],
-    tcp_available: true, tunnel_active: false,
+    tunnel_active: false,
   });
   await mount();
-  expect(container.textContent).toContain(translate("en", "health.ms", { ms: 80 }));
   expect(container.textContent).not.toContain(translate("en", "health.ms", { ms: 260 }));
   expect(container.textContent).toContain(translate("en", "health.afterConnect"));
+  expect(container.querySelector(`button[aria-label="${translate("en", "health.checkNow")}"]`)).toBeNull();
 });
 
 it("opens project and license links through the native opener", async () => {

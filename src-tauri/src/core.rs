@@ -111,14 +111,18 @@ impl CoreState {
             forget_pid(&app);
             let settings = crate::settings::load(&app);
             let recovery = app.state::<crate::recovery::RecoveryState>();
-            if recovery.token().is_none_or(|token| !recovery.eligible(token)) || settings.tun {
+            let restart = !settings.tun && recovery.token().is_some_and(|token| recovery.eligible(token));
+            if !restart {
                 crate::release_system_proxy(&app, settings.listen_port).await;
             }
             if settings.tun && recovery.token().is_some() {
                 state.recovery_log(&app, t!("recovery.tun_manual"));
             }
-            recovery.wake.notify_one();
             state.record_exit(&app, reason);
+            crate::health::publish(&app);
+            if restart {
+                tauri::async_runtime::spawn(crate::recovery::restart_exited_core(app.clone()));
+            }
         }
     }
 
@@ -317,12 +321,8 @@ pub async fn start(app: &AppHandle, settings: &Settings) -> Result<(), String> {
     start_inner(app, settings, true).await
 }
 
-pub async fn restart_for_recovery(app: &AppHandle, settings: &Settings) -> Result<(), String> {
-    if settings.tun {
-        reload_tun(app, settings).await
-    } else {
-        start_inner(app, settings, false).await
-    }
+pub async fn restart_keeping_log(app: &AppHandle, settings: &Settings) -> Result<(), String> {
+    start_inner(app, settings, false).await
 }
 
 async fn start_inner(app: &AppHandle, settings: &Settings, clear_log: bool) -> Result<(), String> {

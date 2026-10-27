@@ -6,7 +6,7 @@ Desktop traffic routing for **Windows and macOS**. Send selected websites and ap
 
 - Domain and process rules, with always-direct exceptions.
 - System proxy and TUN modes; TUN supports TCP/UDP and requires administrator privileges.
-- Separate TCP and tunnel HTTPS health metrics, with automatic recovery and restart limits.
+- A light tunnel check once a minute, with a manual "check now" button; the core restarts automatically only if its process exits.
 - Process diagnostics, core restart and cleanup controls.
 - Tray operation, optional launch at login and auto-connect, signed automatic updates.
 

@@ -1,13 +1,14 @@
-import { Server as ServerIcon } from "lucide-react";
+import { useState } from "react";
+import { Loader2, RefreshCw, Server as ServerIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { LatencyChart } from "./LatencyChart";
 import { useI18n } from "../i18n";
 import type { Server } from "../lib/vless";
+import { checkHealth } from "../lib/ipc";
 import { PROBE_WINDOW, summarize, useServerHealth, type Sample } from "../lib/useServerHealth";
-import type { Health } from "../lib/ipc";
 
-const SLOW_MS = { tcp: 300, tunnel: 1200 } as const;
+const SLOW_MS = 1200;
 
 type State = "checking" | "ok" | "slow" | "down";
 
@@ -18,22 +19,16 @@ const DOT: Record<State, string> = {
   down: "bg-danger",
 };
 
-function HealthMetric({ mode, samples, active, available = true, recovery }: {
-  mode: "tcp" | "tunnel";
-  samples: Sample[];
-  active: boolean;
-  available?: boolean;
-  recovery?: Health["recovery"];
-}) {
+function HealthMetric({ samples, active }: { samples: Sample[]; active: boolean }) {
   const { t } = useI18n();
-  const recoveryActive = recovery && recovery !== "idle" && recovery !== "healthy";
+  const [checking, setChecking] = useState(false);
   const { last, lossPct } = summarize(samples);
 
-  const state: State = !last || recovery === "checking" || recovery === "recovering"
+  const state: State = checking || !last
     ? "checking"
     : last.ms === null
       ? "down"
-      : last.ms > SLOW_MS[mode]
+      : last.ms > SLOW_MS
         ? "slow"
         : "ok";
 
@@ -43,29 +38,42 @@ function HealthMetric({ mode, samples, active, available = true, recovery }: {
       ? `${t("health.down")} · ${sample.error ?? ""} · ${time(sample)}`
       : `${t("health.ms", { ms: sample.ms })} · ${time(sample)}`;
 
-  const enabled = active && available;
-  const stateLabel = recoveryActive ? t(`recovery.${recovery}`) : t(`health.${state}`);
+  const checkNow = async () => {
+    setChecking(true);
+    try {
+      await checkHealth();
+    } catch (err) {
+      console.warn("[health] check failed", err);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const stateLabel = t(`health.${state}`);
   return (
     <div className="border-t border-border px-4 py-3">
       <div className="flex items-center justify-between gap-3">
         <span className="flex min-w-0 items-center gap-2 text-xs text-fg-muted">
-          <span className={`size-2 shrink-0 ${enabled ? DOT[state] : "bg-fg-muted/30"}`}
-            title={enabled ? stateLabel : undefined} aria-label={enabled ? stateLabel : undefined} />
-          {mode === "tcp" ? t("health.modeTcp") : t("health.modeTunnel")}
+          <span className={`size-2 shrink-0 ${active ? DOT[state] : "bg-fg-muted/30"}`}
+            title={active ? stateLabel : undefined} aria-label={active ? stateLabel : undefined} />
+          {t("health.modeTunnel")}
         </span>
-        <span className="flex shrink-0 items-baseline gap-2 font-mono text-xs text-fg-muted">
-          <span className="text-sm text-fg">{enabled && last?.ms != null ? t("health.ms", { ms: last.ms }) : "—"}</span>
-          {enabled && last ? <span className={lossPct > 0 ? "text-warn" : undefined}>
+        <span className="flex shrink-0 items-center gap-2 font-mono text-xs text-fg-muted">
+          <span className="text-sm text-fg">{active && last?.ms != null ? t("health.ms", { ms: last.ms }) : "—"}</span>
+          {active && last ? <span className={lossPct > 0 ? "text-warn" : undefined}>
             {t("health.failures", { pct: lossPct })}
           </span> : null}
+          {active ? (
+            <Button variant="ghost" size="icon" className="-mr-2 h-7 w-7" disabled={checking}
+              onClick={() => void checkNow()} title={t("health.checkNow")} aria-label={t("health.checkNow")}>
+              {checking ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+            </Button>
+          ) : null}
         </span>
       </div>
-      {enabled ? <>
-        <div className="mt-2.5"><LatencyChart samples={samples} slots={PROBE_WINDOW} describe={describe} /></div>
-        {recoveryActive ? <p role="status" className="mt-2 text-xs text-warn">{stateLabel}</p> : null}
-      </> : <p className="mt-2 text-xs text-fg-muted">
-        {t(available ? "health.afterConnect" : "health.tcpUnavailableTun")}
-      </p>}
+      {active
+        ? <div className="mt-2.5"><LatencyChart samples={samples} slots={PROBE_WINDOW} describe={describe} /></div>
+        : <p className="mt-2 text-xs text-fg-muted">{t("health.afterConnect")}</p>}
     </div>
   );
 }
@@ -95,12 +103,7 @@ export function ServerStatus({ server, onEdit }: {
         </Button>
       </div>
 
-      {server ? (
-        <>
-          <HealthMetric mode="tcp" samples={health.tcp} active available={health.tcp_available} />
-          <HealthMetric mode="tunnel" samples={health.tunnel} active={health.tunnel_active} recovery={health.recovery} />
-        </>
-      ) : null}
+      {server ? <HealthMetric samples={health.tunnel} active={health.tunnel_active} /> : null}
     </Card>
   );
 }

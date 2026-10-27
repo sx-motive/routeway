@@ -329,6 +329,12 @@ fn get_health(app: AppHandle) -> health::Health {
 }
 
 #[tauri::command]
+async fn check_health(app: AppHandle) -> health::Health {
+    health::probe_once(&app).await;
+    app.state::<health::HealthState>().snapshot()
+}
+
+#[tauri::command]
 fn minimize_window(window: tauri::Window) -> Result<(), String> {
     window.minimize().map_err(|err| err.to_string())
 }
@@ -483,6 +489,7 @@ pub fn run() {
             disconnect,
             check_ip,
             get_health,
+            check_health,
             get_diagnostics,
             restart_core,
             clean_core,

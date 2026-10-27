@@ -7,7 +7,7 @@ export type { Health, Sample } from "./ipc";
 export const PROBE_WINDOW = 30;
 
 export function useServerHealth(): Health {
-  const [health, setHealth] = useState<Health>({ tcp: [], tunnel: [], tcp_available: true, tunnel_active: false });
+  const [health, setHealth] = useState<Health>({ tunnel: [], tunnel_active: false });
 
   useEffect(() => {
     let alive = true;
