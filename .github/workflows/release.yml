@@ -52,6 +52,11 @@ jobs:
       - name: Fetch sing-box core
         run: node scripts/fetch-core.mjs ${{ matrix.core }}
 
+      - name: Test frontend and connection lifecycle
+        run: |
+          npm test
+          cargo test --manifest-path src-tauri/Cargo.toml
+
       - name: Build + upload via tauri-action
         uses: tauri-apps/tauri-action@v0
         env:

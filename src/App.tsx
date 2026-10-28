@@ -30,6 +30,7 @@ import { toLang, useI18n } from "./i18n";
 type Busy = "idle" | "connecting" | "disconnecting";
 
 const SettingsPanel = lazy(() => import("./components/SettingsPanel"));
+const SshPanel = lazy(() => import("./components/SshPanel"));
 const RulesDialog = lazy(() =>
   import("./components/RulesDialog").then((module) => ({ default: module.RulesDialog })),
 );
@@ -278,6 +279,12 @@ export function App() {
           />
 
           <CoreLog store={logStore} />
+        </div>
+      ) : tab === "ssh" ? (
+        <div className="thin-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-4">
+          <Suspense fallback={<p className="text-xs text-fg-muted">{t("app.loading")}</p>}>
+            <SshPanel />
+          </Suspense>
         </div>
       ) : (
         // A block container, not a flex column: flex children shrink below their

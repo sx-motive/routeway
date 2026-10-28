@@ -6,10 +6,11 @@ import { useI18n } from "../i18n";
 import type { Key } from "../i18n/en";
 import appIcon from "../assets/brand/64x64.png";
 
-export type Tab = "home" | "settings";
+export type Tab = "home" | "ssh" | "settings";
 
 const TABS: { id: Tab; label: Key }[] = [
   { id: "home", label: "tab.home" },
+  { id: "ssh", label: "tab.ssh" },
   { id: "settings", label: "tab.settings" },
 ];
 

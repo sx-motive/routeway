@@ -8,6 +8,7 @@ mod recovery;
 mod settings;
 mod singbox;
 mod startup;
+mod ssh;
 mod sysproxy;
 mod tunhost;
 
@@ -70,7 +71,12 @@ struct StartupStatus {
 /// second connection while startup is still starting the core or awaiting UAC.
 #[tauri::command]
 async fn initialize(app: AppHandle) -> StartupStatus {
-    let settings = settings::load(&app);
+    let mut settings = settings::load(&app);
+    // An installer/manual restart can resume routing for this launch without
+    // changing the user's saved auto-connect preference.
+    if std::env::args().any(|arg| arg == "--connect") {
+        settings.auto_connect = true;
+    }
     let error = app
         .state::<startup::Startup>()
         .run(&settings, async { connect(app.clone()).await.map(|_| ()) })
@@ -496,9 +502,15 @@ pub fn run() {
             restart_app,
             minimize_window,
             hide_window,
-            reveal_config
+            reveal_config,
+            ssh::get_ssh,
+            ssh::save_ssh,
+            ssh::control_ssh
         ])
         .setup(|app| {
+            let ssh_path = app.path().app_config_dir()?.join("ssh-tunnels.json");
+            app.manage(ssh::SshState::load(ssh_path));
+            app.state::<ssh::SshState>().start_auto();
             // A previous run that was killed rather than quit leaves its core
             // holding the port; clear it before anything else needs that port.
             i18n::set(&settings::load(app.handle()).language);
@@ -530,6 +542,7 @@ pub fn run() {
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
+            handle.state::<ssh::SshState>().stop_all();
             recovery::cancel(handle);
             // Last chance to restore the system proxy; the async runtime is still
             // alive here, so block on the teardown.
