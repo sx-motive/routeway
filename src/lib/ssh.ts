@@ -29,3 +29,5 @@ export interface SshSnapshot {
 export const getSsh = () => invoke<SshSnapshot>("get_ssh");
 export const saveSsh = (profiles: SshProfile[]) => invoke<SshSnapshot>("save_ssh", { config: { profiles } });
 export const controlSsh = (id: string, action: "start" | "stop" | "restart") => invoke<SshSnapshot>("control_ssh", { id, action });
+
+export const revealSshConfig = (configFile: string) => invoke<void>("reveal_ssh_config", { configFile });

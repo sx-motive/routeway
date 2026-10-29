@@ -10,6 +10,8 @@ mod singbox;
 mod startup;
 mod ssh;
 mod sysproxy;
+#[cfg(windows)]
+mod shutdown;
 mod tunhost;
 
 pub use tunhost::{run_host as run_tun_host, HOST_FLAG as TUN_HOST_FLAG};
@@ -393,6 +395,25 @@ async fn reveal_config(app: AppHandle) -> Result<(), String> {
         .map_err(|err| t!("err.open_dir", err = err))
 }
 
+#[tauri::command]
+async fn reveal_ssh_config(app: AppHandle, config_file: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = if config_file.trim().is_empty() {
+        app.path().home_dir().map_err(|err| err.to_string())?.join(".ssh").join("config")
+    } else {
+        std::path::PathBuf::from(config_file)
+    };
+    if !path.is_absolute() {
+        return Err("SSH config path must be absolute".into());
+    }
+    if path.exists() {
+        app.opener().reveal_item_in_dir(&path).map_err(|err| err.to_string())
+    } else {
+        let dir = path.parent().ok_or("Invalid SSH config path")?;
+        app.opener().open_path(dir.to_string_lossy().to_string(), None::<&str>).map_err(|err| err.to_string())
+    }
+}
+
 /// Stops the core and hands the network back to the system. Always safe to call.
 async fn teardown(app: &AppHandle, settings: &Settings) {
     release_system_proxy(app, settings.listen_port).await;
@@ -503,6 +524,7 @@ pub fn run() {
             minimize_window,
             hide_window,
             reveal_config,
+            reveal_ssh_config,
             ssh::get_ssh,
             ssh::save_ssh,
             ssh::control_ssh
@@ -525,6 +547,8 @@ pub fn run() {
             // process starts in the background and the window never activates).
             // Showing it explicitly makes the first launch deterministic.
             if let Some(window) = app.get_webview_window("main") {
+                #[cfg(windows)]
+                shutdown::install(&window)?;
                 let _ = window.show();
                 let _ = window.set_focus();
             }
@@ -542,6 +566,8 @@ pub fn run() {
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
+            #[cfg(windows)]
+            if shutdown::is_ending() { return; }
             handle.state::<ssh::SshState>().stop_all();
             recovery::cancel(handle);
             // Last chance to restore the system proxy; the async runtime is still

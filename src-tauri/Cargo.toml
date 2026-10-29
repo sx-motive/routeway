@@ -1,6 +1,6 @@
 [package]
 name = "routeway"
-version = "0.8.0"
+version = "0.8.1"
 license = "GPL-3.0-or-later"
 description = "Split-tunnel router: send chosen domains through your own server, keep the rest direct"
 edition = "2021"

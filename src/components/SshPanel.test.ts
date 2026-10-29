@@ -32,7 +32,7 @@ const button = (label: string) => {
 
 it("shows local ports and stops only the selected SSH profile", async () => {
   await mount();
-  expect(container.textContent).toContain("Connected"); expect(container.textContent).toContain("19708");
+  expect(container.textContent).toContain("Connected"); expect(container.textContent).not.toContain("19708");
   await act(async () => button("Connect Web").click());
   expect(ipc.controlSsh).toHaveBeenCalledWith("web", "stop");
   expect(container.textContent).toContain("Stopped");
@@ -40,7 +40,9 @@ it("shows local ports and stops only the selected SSH profile", async () => {
 
 it("persists autoconnect independently without invoking a connection action", async () => {
   await mount();
-  await act(async () => button("Autoconnect Web").click());
+  await act(async () => button("Edit: Web").click());
+  await act(async () => container.querySelector<HTMLButtonElement>('[role="switch"]')!.click());
+  await act(async () => container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
   expect(ipc.saveSsh).toHaveBeenCalledWith([{ ...connected.config.profiles[0], auto_connect: false }]);
   expect(ipc.controlSsh).not.toHaveBeenCalled();
 });
@@ -49,6 +51,7 @@ it("keeps connection errors visible and never claims a failed tunnel is connecte
   ipc.getSsh.mockResolvedValue({ ...connected, states: { web: { ...connected.states.web, phase: "reconnecting", last_error: "Local port 19708 is already in use" } } });
   await mount();
   expect(container.querySelector('[role="status"]')?.textContent).toContain("Reconnecting");
+  await act(async () => button("Edit: Web").click());
   expect(container.textContent).toContain("already in use");
 });
 
@@ -66,21 +69,31 @@ it("does not overwrite an explicit stop with an older polling result", async () 
 it("leaves the saved profiles intact after a failed edit", async () => {
   ipc.saveSsh.mockRejectedValue(new Error("Local port is duplicated"));
   await mount();
-  await act(async () => button("Edit").click());
+  await act(async () => button("Edit: Web").click());
   await act(async () => container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("duplicated");
   expect(container.querySelector("form")).not.toBeNull();
-  expect(container.textContent).toContain("19708");
+  expect(container.querySelector<HTMLInputElement>('input[inputmode="numeric"]')?.value).toBe("19708");
 });
 
 it("requires an inline confirmation before deleting an active profile", async () => {
   ipc.saveSsh.mockResolvedValue({ config: { profiles: [] }, states: {}, error: null });
   await mount();
-  await act(async () => button("Edit").click());
+  await act(async () => button("Edit: Web").click());
   await act(async () => button("Delete profile").click());
   expect(ipc.saveSsh).not.toHaveBeenCalled();
   expect(container.textContent).toContain("Delete Web and stop its tunnels?");
   await act(async () => button("Delete profile").click());
   expect(ipc.saveSsh).toHaveBeenCalledWith([]);
   expect(container.textContent).toContain("Add an SSH server");
+});
+
+it("returns from the editor without saving", async () => {
+  await mount();
+  await act(async () => button("Edit: Web").click());
+  expect(container.querySelector("form")).not.toBeNull();
+  await act(async () => button("Back").click());
+  expect(container.querySelector("form")).toBeNull();
+  expect(button("Connect Web")).toBeTruthy();
+  expect(ipc.saveSsh).not.toHaveBeenCalled();
 });
