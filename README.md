@@ -1,10 +1,10 @@
 # Routeway
 
-Desktop traffic routing for **Windows and macOS**. Send selected websites and apps through your own VLESS/REALITY server while keeping other traffic direct. Built with Tauri, React and sing-box.
+Desktop traffic routing for **Windows and macOS**. Send selected websites and apps—or all traffic—through your own VLESS/REALITY server, with always-direct exceptions. Built with Tauri, React and sing-box.
 
 ## Features
 
-- Domain and process rules, with always-direct exceptions.
+- Selective domain and process rules or route-all mode, with always-direct exceptions.
 - System proxy and TUN modes; TUN supports TCP/UDP and requires administrator privileges.
 - A light tunnel check once a minute, with a manual "check now" button; the core restarts automatically only if its process exits.
 - Process diagnostics, core restart and cleanup controls.

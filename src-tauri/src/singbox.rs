@@ -2,8 +2,8 @@ use serde_json::{json, Value};
 
 use crate::settings::Settings;
 
-/// Builds a sing-box 1.14 config implementing the core promise of Routeway:
-/// listed domains go through the server, everything else goes direct.
+/// Builds a sing-box 1.14 config implementing selective or route-all routing,
+/// with always-direct domain exceptions in either mode.
 ///
 /// The shape is deliberately conservative — a `mixed` inbound on loopback plus
 /// domain-suffix routing — so the same config works whether traffic arrives from
@@ -74,7 +74,10 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
 
     let direct = settings.normalized_direct();
     if !direct.is_empty() {
-        route_rules.push(json!({ "domain_suffix": direct, "outbound": "direct" }));
+        route_rules.push(json!({ "domain_suffix": direct.clone(), "outbound": "direct" }));
+        if settings.route_all {
+            dns_rules.push(json!({ "domain_suffix": direct, "server": "dns-direct" }));
+        }
     }
 
     // Process rules come before domain rules: "this app always goes through the
@@ -88,7 +91,7 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
     }
 
     if !domains.is_empty() {
-        route_rules.push(json!({ "domain_suffix": domains, "outbound": "proxy" }));
+        route_rules.push(json!({ "domain_suffix": domains.clone(), "outbound": "proxy" }));
         // Resolve proxied names through the tunnel so a poisoned local resolver
         // cannot answer for them.
         dns_rules.push(json!({ "domain_suffix": domains, "server": "dns-proxy" }));
@@ -144,8 +147,8 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
                 direct_dns
             ],
             "rules": dns_rules,
-            // Unmatched DNS must not depend on the remote server being up.
-            "final": "dns-direct",
+            // In selective mode unmatched DNS stays independent of the server.
+            "final": if settings.route_all { "dns-proxy" } else { "dns-direct" },
             "strategy": dns_strategy
         },
         "inbounds": inbounds,
@@ -155,7 +158,7 @@ pub fn build_config(settings: &Settings) -> Result<Value, String> {
         ],
         "route": {
             "rules": route_rules,
-            "final": "direct",
+            "final": if settings.route_all { "proxy" } else { "direct" },
             "default_domain_resolver": "dns-direct",
             "find_process": true,
             // Direct and server-bound sockets must bind the physical interface,
@@ -196,6 +199,25 @@ mod tests {
         let domain_rule = rules.last().unwrap();
         assert_eq!(domain_rule["outbound"], "proxy");
         assert_eq!(domain_rule["domain_suffix"][0], "youtube.com");
+    }
+
+    #[test]
+    fn route_all_uses_proxy_by_default_and_preserves_direct_exceptions() {
+        let mut settings = settings_with(&[]);
+        settings.route_all = true;
+        settings.direct = vec!["intranet.example.com".into()];
+        let cfg = build_config(&settings).unwrap();
+
+        assert_eq!(cfg["route"]["final"], "proxy");
+        assert_eq!(cfg["dns"]["final"], "dns-proxy");
+        let dns_rules = cfg["dns"]["rules"].as_array().unwrap();
+        assert_eq!(dns_rules[0]["domain_suffix"][0], "intranet.example.com");
+        assert_eq!(dns_rules[0]["server"], "dns-direct");
+        let route_rules = cfg["route"]["rules"].as_array().unwrap();
+        assert!(route_rules.iter().any(|rule| {
+            rule["domain_suffix"][0] == "intranet.example.com" && rule["outbound"] == "direct"
+        }));
+        assert!(route_rules.iter().any(|rule| rule["ip_is_private"] == true));
     }
 
     #[test]

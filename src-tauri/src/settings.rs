@@ -43,7 +43,7 @@ fn default_listen_port() -> u16 {
 pub struct Settings {
     #[serde(default)]
     pub server: Option<Server>,
-    /// Domains routed through the server. Everything else stays direct.
+    /// Domains routed through the server in selective mode.
     #[serde(default)]
     pub domains: Vec<String>,
     /// Processes routed through the server, by executable name ("codex") or by
@@ -55,6 +55,9 @@ pub struct Settings {
     /// that resolve to internal addresses only through the VPN's own DNS.
     #[serde(default)]
     pub direct: Vec<String>,
+    /// Send all traffic reaching the core through the server, except direct rules.
+    #[serde(default)]
+    pub route_all: bool,
     #[serde(default = "default_listen_port")]
     pub listen_port: u16,
     /// Whether the system proxy should point at us while the core runs.
@@ -79,6 +82,7 @@ impl Default for Settings {
             domains: Vec::new(),
             processes: Vec::new(),
             direct: Vec::new(),
+            route_all: false,
             listen_port: default_listen_port(),
             system_proxy: true,
             tun: false,
@@ -347,7 +351,17 @@ mod tests {
         let settings: Settings = serde_json::from_str(r#"{"autostart": true}"#).unwrap();
         assert!(settings.autostart);
         assert!(!settings.auto_connect);
+        assert!(!settings.route_all);
         assert!(!Settings::default().auto_connect);
+        assert!(!Settings::default().route_all);
+    }
+
+    #[test]
+    fn route_all_persists() {
+        let settings = Settings { route_all: true, ..Settings::default() };
+        let saved = serde_json::to_string(&settings).unwrap();
+        let loaded: Settings = serde_json::from_str(&saved).unwrap();
+        assert!(loaded.route_all);
     }
 
     #[test]

@@ -95,6 +95,7 @@ export const ru: Dict = {
   "status.allDirect": "весь трафик идёт напрямую",
   "status.nothingRouted": "ничего не направлено через сервер — весь трафик идёт напрямую",
   "status.routed": "{items} через {server} · остальное напрямую",
+  "status.allRouted": "весь трафик через {server} · исключения и локальные адреса напрямую",
   "status.join": "{a} и {b}",
   "status.server": "сервер",
   "status.toggle": "Включить маршрутизацию",
@@ -174,6 +175,8 @@ export const ru: Dict = {
   "settings.general": "Общие",
   "settings.routing": "Маршрутизация",
   "settings.language": "Язык",
+  "settings.routeAll": "Весь трафик через сервер",
+  "settings.routeAllHint": "Весь трафик, попадающий в Routeway, идёт через сервер, кроме списка «Всегда напрямую» и локальных адресов. Списки приложений и доменов работают, только когда режим выключен.",
   "settings.tun": "Режим TUN",
   "settings.tunHint":
     "Перехватывает трафик всех приложений, включая UDP и тех, кто игнорирует прокси. Нужны права администратора.",

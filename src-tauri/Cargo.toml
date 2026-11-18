@@ -1,8 +1,8 @@
 [package]
 name = "routeway"
-version = "0.8.1"
+version = "0.9.0"
 license = "GPL-3.0-or-later"
-description = "Split-tunnel router: send chosen domains through your own server, keep the rest direct"
+description = "Route selected traffic or everything through your own server, with direct exceptions"
 edition = "2021"
 rust-version = "1.82"
 

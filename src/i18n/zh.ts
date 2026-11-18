@@ -95,6 +95,7 @@ export const zh: Dict = {
   "status.allDirect": "所有流量直连",
   "status.nothingRouted": "没有内容经由服务器 — 所有流量直连",
   "status.routed": "{items}经由 {server} · 其余直连",
+  "status.allRouted": "所有流量经由 {server} · 例外和本地地址直连",
   "status.join": "{a}和{b}",
   "status.server": "服务器",
   "status.toggle": "开启路由",
@@ -163,6 +164,8 @@ export const zh: Dict = {
   "settings.general": "通用",
   "settings.routing": "路由",
   "settings.language": "语言",
+  "settings.routeAll": "所有流量经由服务器",
+  "settings.routeAllHint": "到达 Routeway 的所有流量都经由服务器，但“始终直连”域名和本地地址除外。应用和域名列表仅在关闭此模式时生效。",
   "settings.tun": "TUN 模式",
   "settings.tunHint":
     "接管所有应用的流量，包括 UDP 和忽略代理的应用。需要管理员权限。",

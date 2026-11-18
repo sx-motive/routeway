@@ -180,8 +180,9 @@ export function App() {
       ? t("count.domains", { n: settings.domains.length })
       : null,
   ].filter((part): part is string => part !== null);
-  const routedSummary =
-    routed.length === 0
+  const routedSummary = settings.route_all
+    ? t("status.allRouted", { server: settings.server?.label ?? t("status.server") })
+    : routed.length === 0
       ? t("status.nothingRouted")
       : t("status.routed", {
           items: routed.length === 2 ? t("status.join", { a: routed[0], b: routed[1] }) : routed[0],

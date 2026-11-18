@@ -35,7 +35,7 @@ const status: Status = {
   settings: {
     server: { label: "Test", address: "example.org", port: 443, uuid: "test", flow: "", sni: "", public_key: "", short_id: "", fingerprint: "chrome" },
     domains: [], processes: [], direct: [], listen_port: 2080,
-    system_proxy: true, tun: false, language: "en", autostart: false, auto_connect: false, verbose_log: false,
+    route_all: false, system_proxy: true, tun: false, language: "en", autostart: false, auto_connect: false, verbose_log: false,
   },
 };
 
@@ -105,6 +105,17 @@ it("does not overwrite a live health event with an older snapshot", async () => 
   expect(container.textContent).toContain(translate("en", "health.ms", { ms: 42 }));
   await act(async () => resolve({ tunnel: [], tunnel_active: false }));
   expect(container.textContent).toContain(translate("en", "health.ms", { ms: 42 }));
+});
+
+it("saves route-all mode and updates the connection summary", async () => {
+  ipc.saveSettings.mockImplementation(async (settings: Status["settings"]) => ({ ...status, settings }));
+  await mount();
+  await click("Settings");
+  await click(translate("en", "settings.routeAll"));
+  expect(ipc.saveSettings).toHaveBeenCalledWith({ ...status.settings, route_all: true });
+  await click(translate("en", "tab.home"));
+  const summary = translate("en", "status.allRouted", { server: "Test" });
+  expect(container.querySelector(`p[title="${summary}"]`)).not.toBeNull();
 });
 
 it("starts both IP checks before either one completes", async () => {

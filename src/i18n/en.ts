@@ -100,6 +100,7 @@ export const en = {
   "status.allDirect": "all traffic goes direct",
   "status.nothingRouted": "nothing is routed through the server — all traffic goes direct",
   "status.routed": "{items} via {server} · the rest direct",
+  "status.allRouted": "all traffic via {server} · exceptions and local addresses direct",
   "status.join": "{a} and {b}",
   "status.server": "server",
   "status.toggle": "Turn routing on",
@@ -169,6 +170,8 @@ export const en = {
   "settings.general": "General",
   "settings.routing": "Routing",
   "settings.language": "Language",
+  "settings.routeAll": "Route all traffic",
+  "settings.routeAllHint": "Everything reaching Routeway goes through the server, except Always direct domains and local addresses. App and domain lists apply only when this is off.",
   "settings.tun": "TUN mode",
   "settings.tunHint":
     "Captures traffic from every app, including UDP and apps that ignore the proxy. Needs administrator rights.",

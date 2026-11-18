@@ -112,6 +112,18 @@ export default function SettingsPanel({
       <Card title={t("settings.routing")}>
         <Rows>
           <Row
+            label={t("settings.routeAll")}
+            hint={t("settings.routeAllHint")}
+            control={
+              <Switch
+                checked={settings.route_all}
+                disabled={working}
+                onCheckedChange={(on) => void persist({ ...settings, route_all: on })}
+                aria-label={t("settings.routeAll")}
+              />
+            }
+          />
+          <Row
             label={t("settings.tun")}
             hint={t("settings.tunHint")}
             control={
