@@ -113,8 +113,6 @@ export const ru: Dict = {
   },
 
   "warn.proxyNotSet": "Ядро работает, но системный прокси не выставлен — трафик идёт напрямую.",
-  "warn.proxyOff":
-    "Системный прокси выключен: в Routeway попадёт только то, что ты направишь на 127.0.0.1:{port} вручную.",
 
   "server.none": "Сервер не настроен",
   "server.edit": "Изменить",
@@ -138,14 +136,8 @@ export const ru: Dict = {
   "vless.noAddress": "В ссылке нет адреса сервера",
   "vless.badPort": "Некорректный порт",
 
-  "health.checking": "Проверяю…",
-  "health.ok": "Доступен",
-  "health.slow": "Медленно",
   "health.down": "Нет ответа",
-  "health.modeTunnel": "HTTPS через туннель",
   "health.failures": "ошибки {pct}%",
-  "health.afterConnect": "Доступно после подключения",
-  "health.checkNow": "Проверить сейчас",
   "health.ms": "{ms}мс",
   "health.avg": "в ср. {ms} мс",
   "health.loss": "потери {pct}%",

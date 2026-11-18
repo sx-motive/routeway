@@ -59,7 +59,7 @@ export function DiagnosticsPanel({ working, canRestart, maintainCore }: {
       {error ? <p role="alert" className="break-words border-b border-border px-4 py-3 text-xs leading-relaxed text-danger">{error}</p> : null}
         {data ? <>
           <dl className="grid grid-cols-3 divide-x divide-border border-b border-border py-3 text-xs">
-            <div className="px-4"><dt className="text-fg-muted">{t("debug.core")}</dt><dd className="mt-1 flex items-center gap-1.5 text-fg"><span className={`size-1.5 shrink-0 ${data.core_running ? "bg-ok" : "bg-fg-muted"}`} />{t(data.core_running ? "debug.running" : "debug.stopped")}</dd></div>
+            <div className="px-4"><dt className="text-fg-muted">{t("debug.core")}</dt><dd className="mt-1 flex items-center gap-1.5 text-fg"><span className={`size-1.5 shrink-0 rounded-full ${data.core_running ? "bg-ok" : "bg-fg-muted"}`} />{t(data.core_running ? "debug.running" : "debug.stopped")}</dd></div>
             <div className="px-4"><dt className="text-fg-muted">{t("debug.proxy")}</dt><dd className="mt-1 text-fg">{t(data.system_proxy_active ? "debug.on" : "debug.off")}</dd></div>
             <div className="px-4"><dt className="text-fg-muted">{t("debug.port")}</dt><dd className="mt-1 font-mono text-fg">{data.listen_port}</dd></div>
           </dl>

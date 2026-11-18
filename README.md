@@ -6,7 +6,7 @@ Desktop traffic routing for **Windows and macOS**. Send selected websites and ap
 
 - Selective domain and process rules or route-all mode, with always-direct exceptions.
 - System proxy and TUN modes; TUN supports TCP/UDP and requires administrator privileges.
-- A light tunnel check once a minute, with a manual "check now" button; the core restarts automatically only if its process exits.
+- A light tunnel check once a minute, with latency shown next to the server; the core restarts automatically only if its process exits.
 - Process diagnostics, core restart and cleanup controls.
 - Tray operation, optional launch at login and auto-connect, signed automatic updates.
 - SSH port forwards with independent connection controls, status, logs and automatic reconnection on Windows and macOS.

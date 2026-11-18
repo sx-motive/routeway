@@ -4,8 +4,6 @@ import { getHealth, type Health, type Sample } from "./ipc";
 
 export type { Health, Sample } from "./ipc";
 
-export const PROBE_WINDOW = 30;
-
 export function useServerHealth(): Health {
   const [health, setHealth] = useState<Health>({ tunnel: [], tunnel_active: false });
 

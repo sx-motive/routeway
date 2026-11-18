@@ -77,7 +77,6 @@ export interface Health {
 }
 
 export const getHealth = () => invoke<Health>("get_health");
-export const checkHealth = () => invoke<Health>("check_health");
 
 export const revealConfig = () => invoke<void>("reveal_config");
 

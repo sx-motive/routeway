@@ -1,5 +1,6 @@
 import { FolderOpen, Minus, MoonStar, Sun, X } from "lucide-react";
 import { Button } from "./ui/button";
+import { Segmented } from "./ui/segmented";
 import { useTheme } from "../theme/ThemeProvider";
 import { hideWindow, minimizeWindow, revealConfig } from "../lib/ipc";
 import { useI18n } from "../i18n";
@@ -19,33 +20,18 @@ export function TitleBar({ tab, onTabChange }: { tab: Tab; onTabChange: (tab: Ta
   const { t } = useI18n();
 
   return (
-    <div data-tauri-drag-region className="flex h-9 shrink-0 items-center px-2 select-none">
-      <span data-tauri-drag-region className="flex shrink-0 items-center pr-3 pl-1">
+    <div data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-0.5 px-3 select-none">
+      <span data-tauri-drag-region className="flex shrink-0 items-center pr-3 pl-0.5">
         <img src={appIcon} alt="Routeway" width={20} height={20} draggable={false}
           data-tauri-drag-region className="brand-logo size-5 shrink-0" />
       </span>
-      <nav className="flex h-full items-stretch">
-        {TABS.map(({ id, label }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => onTabChange(id)}
-            className={[
-              "border-b px-2.5 text-xs transition-colors outline-none focus-visible:bg-bg-elevated",
-              tab === id
-                ? "border-accent text-fg"
-                : "border-transparent text-fg-muted/70 hover:text-fg",
-            ].join(" ")}
-          >
-            {t(label)}
-          </button>
-        ))}
-      </nav>
+      <Segmented role="tablist" value={tab} onChange={onTabChange}
+        options={TABS.map(({ id, label }) => ({ id, label: t(label) }))} />
       <div className="flex-1" data-tauri-drag-region />
       <Button
         variant="ghost"
         size="icon"
-        className="h-7 w-7 text-fg-muted/50"
+        className="h-7 w-7 text-fg-muted/70"
         aria-label={t("titlebar.openConfig")}
         title={t("titlebar.openConfig")}
         onClick={() => void revealConfig()}
@@ -55,7 +41,7 @@ export function TitleBar({ tab, onTabChange }: { tab: Tab; onTabChange: (tab: Ta
       <Button
         variant="ghost"
         size="icon"
-        className="h-7 w-7 text-fg-muted/50"
+        className="h-7 w-7 text-fg-muted/70"
         aria-label={t("titlebar.theme")}
         title={t("titlebar.theme")}
         onClick={() => setTheme(theme === "light" ? "dark" : "light")}
@@ -69,7 +55,7 @@ export function TitleBar({ tab, onTabChange }: { tab: Tab; onTabChange: (tab: Ta
       <Button
         variant="ghost"
         size="icon"
-        className="h-7 w-7 text-fg-muted/50"
+        className="h-7 w-7 text-fg-muted/70"
         aria-label={t("titlebar.minimize")}
         title={t("titlebar.minimize")}
         onClick={() => void minimizeWindow()}
@@ -79,7 +65,7 @@ export function TitleBar({ tab, onTabChange }: { tab: Tab; onTabChange: (tab: Ta
       <Button
         variant="ghost"
         size="icon"
-        className="h-7 w-7 text-fg-muted/50"
+        className="h-7 w-7 text-fg-muted/70"
         aria-label={t("titlebar.close")}
         title={t("titlebar.closeHint")}
         onClick={() => void hideWindow()}

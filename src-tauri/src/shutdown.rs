@@ -10,9 +10,18 @@ use windows_sys::Win32::{
 
 const SUBCLASS_ID: usize = 0x52575344;
 static CLEANUP_STARTED: AtomicBool = AtomicBool::new(false);
+/// Set as soon as Windows asks whether the session may end. From then on the
+/// system can kill the core at any moment, and a process started in an ending
+/// session fails with 0xc0000142 and an error popup, so nothing may respawn it.
+static SESSION_QUERIED: AtomicBool = AtomicBool::new(false);
 
 pub fn is_ending() -> bool {
     CLEANUP_STARTED.load(Ordering::Acquire)
+}
+
+/// Whether starting a child process now could land in a dying session.
+pub fn blocks_new_processes() -> bool {
+    SESSION_QUERIED.load(Ordering::Acquire) || is_ending()
 }
 
 pub fn install(window: &WebviewWindow) -> tauri::Result<()> {
@@ -27,6 +36,16 @@ pub fn install(window: &WebviewWindow) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Tracks whether the session may be ending: Windows first asks every app,
+/// then confirms the end or, if one vetoed, reports that it was cancelled.
+fn note_session_message(message: u32, wparam: WPARAM) {
+    if message == WM_QUERYENDSESSION {
+        SESSION_QUERIED.store(true, Ordering::Release);
+    } else if message == WM_ENDSESSION && wparam == 0 {
+        SESSION_QUERIED.store(false, Ordering::Release);
+    }
+}
+
 fn session_ending(message: u32, confirmed: usize) -> bool {
     message == WM_ENDSESSION && confirmed != 0
 }
@@ -35,6 +54,8 @@ unsafe extern "system" fn session_proc(
     hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM,
     id: usize, data: usize,
 ) -> LRESULT {
+    // Stop restarting the core while the session may be ending.
+    note_session_message(message, wparam);
     if message == WM_QUERYENDSESSION {
         // Never veto shutdown; cancellation must leave connections untouched.
         return 1;
@@ -85,5 +106,16 @@ mod tests {
         assert!(!session_ending(WM_ENDSESSION, 0));
         assert!(session_ending(WM_ENDSESSION, 1));
         assert!(!session_ending(WM_NCDESTROY, 1));
+    }
+
+    #[test]
+    fn a_pending_session_end_blocks_restarts_until_cancelled() {
+        assert!(!blocks_new_processes());
+        note_session_message(WM_QUERYENDSESSION, 0);
+        assert!(blocks_new_processes());
+        note_session_message(WM_ENDSESSION, 1);
+        assert!(blocks_new_processes());
+        note_session_message(WM_ENDSESSION, 0);
+        assert!(!blocks_new_processes());
     }
 }

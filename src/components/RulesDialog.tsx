@@ -85,16 +85,16 @@ export function RulesDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-overlay" />
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-overlay backdrop-blur-sm" />
         <Dialog.Content
           onOpenAutoFocus={(e) => {
             e.preventDefault();
             areaRef.current?.focus();
           }}
-          className="fixed inset-4 z-50 m-auto flex max-h-[640px] max-w-[720px] flex-col border border-border bg-surface focus:outline-none"
+          className="fixed inset-4 z-50 m-auto flex max-h-[640px] max-w-[720px] flex-col overflow-hidden rounded-3xl border border-border bg-popover shadow-2xl shadow-black/40 backdrop-blur-2xl focus:outline-none"
         >
           <header className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border px-4">
-            <Dialog.Title className="text-[11px] font-medium tracking-wider text-fg-muted uppercase">
+            <Dialog.Title className="text-xs font-medium text-fg-muted">
               {t("rules.title")}
             </Dialog.Title>
             <Dialog.Close asChild>

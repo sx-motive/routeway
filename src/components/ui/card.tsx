@@ -13,10 +13,15 @@ export function Card({
   children: ReactNode;
 }) {
   return (
-    <section className={cn("border border-border bg-surface", className)}>
+    <section
+      className={cn(
+        "overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--card-shadow)]",
+        className,
+      )}
+    >
       {title ? (
-        <header className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border px-4">
-          <h2 className="truncate text-[11px] font-medium tracking-wider text-fg-muted uppercase">
+        <header className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-border px-4">
+          <h2 className="truncate text-xs font-medium text-fg-muted">
             {title}
           </h2>
           {aside}

@@ -103,7 +103,6 @@ export const zh: Dict = {
   "count.domains": { other: "{n} 个域名" },
 
   "warn.proxyNotSet": "核心正在运行，但系统代理未设置 — 流量直连。",
-  "warn.proxyOff": "系统代理已关闭：只有你手动指向 127.0.0.1:{port} 的流量才会进入 Routeway。",
 
   "server.none": "尚未配置服务器",
   "server.edit": "编辑",
@@ -127,14 +126,8 @@ export const zh: Dict = {
   "vless.noAddress": "链接中没有服务器地址",
   "vless.badPort": "端口无效",
 
-  "health.checking": "检测中…",
-  "health.ok": "可达",
-  "health.slow": "较慢",
   "health.down": "无响应",
-  "health.modeTunnel": "HTTPS 经由隧道",
   "health.failures": "失败 {pct}%",
-  "health.afterConnect": "连接后可用",
-  "health.checkNow": "立即检测",
   "health.ms": "{ms}毫秒",
   "health.avg": "平均 {ms} 毫秒",
   "health.loss": "丢包 {pct}%",

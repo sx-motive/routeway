@@ -108,8 +108,6 @@ export const en = {
   "count.domains": { one: "{n} domain", other: "{n} domains" } as Plural,
 
   "warn.proxyNotSet": "The core is running, but the system proxy is not set — traffic goes direct.",
-  "warn.proxyOff":
-    "The system proxy is off: only what you point at 127.0.0.1:{port} manually reaches Routeway.",
 
   "server.none": "No server configured",
   "server.edit": "Edit",
@@ -133,14 +131,8 @@ export const en = {
   "vless.noAddress": "The link has no server address",
   "vless.badPort": "Invalid port",
 
-  "health.checking": "Checking…",
-  "health.ok": "Reachable",
-  "health.slow": "Slow",
   "health.down": "No response",
-  "health.modeTunnel": "HTTPS through tunnel",
   "health.failures": "failed {pct}%",
-  "health.afterConnect": "Available after connecting",
-  "health.checkNow": "Check now",
   "health.ms": "{ms}ms",
   "health.avg": "avg {ms} ms",
   "health.loss": "loss {pct}%",

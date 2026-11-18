@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { CircleAlert, CircleCheck, Info, Terminal, TriangleAlert } from "lucide-react";
+import { ChevronRight, CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { useI18n } from "../i18n";
@@ -68,7 +68,7 @@ function Row({ row }: { row: LogRow }) {
         <div className="flex items-baseline gap-2">
           <span className="min-w-0 truncate text-xs text-fg">{title}</span>
           {row.count > 1 ? (
-            <span className="shrink-0 border border-border px-1 font-mono text-[10px] text-fg-muted">
+            <span className="shrink-0 rounded-full bg-bg-elevated px-1.5 font-mono text-[10px] text-fg-muted">
               ×{row.count}
             </span>
           ) : null}
@@ -83,44 +83,74 @@ function Row({ row }: { row: LogRow }) {
   );
 }
 
+const OPEN_KEY = "routeway.logOpen";
+
+function readOpen() {
+  try {
+    return localStorage.getItem(OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function CoreLog({ store }: { store: LogStore }) {
   const events = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = useI18n();
   const [raw, setRaw] = useState(false);
+  const [open, setOpen] = useState(readOpen);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rows = useMemo(() => groupLog(events), [events]);
+  const problems = useMemo(
+    () => events.filter((event) => event.level === "error" || event.level === "warn").length,
+    [events],
+  );
+
+  function toggleOpen() {
+    setOpen((value) => {
+      try {
+        localStorage.setItem(OPEN_KEY, value ? "0" : "1");
+      } catch {
+        // The log simply opens collapsed next time.
+      }
+      return !value;
+    });
+  }
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [events, raw]);
+  }, [events, raw, open]);
 
   return (
-    <Card
-      className="flex min-h-40 flex-1 flex-col"
-      title={
-        <span className="inline-flex items-center gap-2">
-          <Terminal className="h-3.5 w-3.5" />
-          {t("log.title")}
-        </span>
-      }
-      aside={
-        <span className="-mr-2 flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7"
-            aria-pressed={raw}
-            onClick={() => setRaw((v) => !v)}
-          >
-            {raw ? t("log.readable") : t("log.raw")}
-          </Button>
-          <Button variant="ghost" size="sm" className="h-7" disabled={!events.length} onClick={store.clear}>
-            {t("log.clear")}
-          </Button>
-        </span>
-      }
-    >
-      <div ref={scrollRef} className="thin-scroll min-h-0 flex-1 overflow-y-auto bg-bg">
+    <Card className={open ? "flex min-h-40 flex-1 flex-col" : "shrink-0"}>
+      <header className="flex h-11 shrink-0 items-center gap-2 pr-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={toggleOpen}
+          className="flex h-full min-w-0 flex-1 items-center gap-2 pl-4 text-left text-xs font-medium text-fg-muted transition-colors outline-none hover:text-fg focus-visible:text-fg"
+        >
+          <ChevronRight className={`size-3.5 shrink-0 transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
+          <span className="truncate">{t("log.title")}</span>
+          {problems > 0 ? (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warn/10 px-1.5 font-mono text-[10px] text-warn">
+              <TriangleAlert className="size-3" />
+              {problems}
+            </span>
+          ) : null}
+        </button>
+        {open ? (
+          <span className="flex shrink-0 items-center gap-1">
+            <Button variant="ghost" size="sm" className="h-7" aria-pressed={raw} onClick={() => setRaw((v) => !v)}>
+              {raw ? t("log.readable") : t("log.raw")}
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7" disabled={!events.length} onClick={store.clear}>
+              {t("log.clear")}
+            </Button>
+          </span>
+        ) : null}
+      </header>
+      {open ? (
+      <div ref={scrollRef} className="thin-scroll min-h-0 flex-1 overflow-y-auto border-t border-border">
         {events.length === 0 ? (
           <p className="px-4 py-3 text-xs text-fg-muted">{t("log.empty")}</p>
         ) : raw ? (
@@ -139,6 +169,7 @@ export function CoreLog({ store }: { store: LogStore }) {
           </ul>
         )}
       </div>
+      ) : null}
     </Card>
   );
 }

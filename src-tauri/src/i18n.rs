@@ -166,6 +166,12 @@ const TABLE: &[Row] = &[
         "找不到 sing-box 核心：{err}",
     ),
     (
+        "err.session_ending",
+        "Windows is shutting down, the core will not start",
+        "Windows завершает работу, ядро не запускается",
+        "Windows 正在关机，核心不会启动",
+    ),
+    (
         "err.core_spawn",
         "could not start the core: {err}",
         "не удалось запустить ядро: {err}",

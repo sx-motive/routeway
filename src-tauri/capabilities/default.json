@@ -10,6 +10,9 @@
     "core:window:allow-hide",
     "core:window:allow-show",
     "core:window:allow-close",
+    "core:window:allow-set-theme",
+    "core:window:allow-set-shadow",
+    "core:window:allow-set-effects",
     "opener:default",
     "process:default",
     "updater:default"

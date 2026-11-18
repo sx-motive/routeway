@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { syncWindowTheme } from "./glass";
 
 type Theme = "dark" | "light" | "system";
 
@@ -23,6 +24,7 @@ function apply(theme: Theme) {
         : "dark"
       : theme;
   root.setAttribute("data-theme", resolved);
+  void syncWindowTheme(theme === "system" ? null : resolved);
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {

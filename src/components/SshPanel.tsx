@@ -17,11 +17,11 @@ export default function SshPanel() {
   const [editing, setEditing] = useState<SshProfile | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const generation = useRef(0);
-  const header = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Scroll only the content pane; scrollIntoView also moves the window frame.
-    if (header.current?.parentElement) header.current.parentElement.scrollTop = 0;
+    if (body.current) body.current.scrollTop = 0;
   }, [editing?.id]);
 
   useEffect(() => {
@@ -58,19 +58,19 @@ export default function SshPanel() {
   const profiles = snapshot?.config.profiles ?? [];
 
   return <>
-    <div ref={header} className="sticky top-0 z-10 space-y-2 border-b border-border bg-bg py-3">
+    <div className="shrink-0 px-4 pt-1 pb-3">
       <div className="flex min-h-8 items-center justify-between gap-3">
         <h1 className="min-w-0 text-sm font-medium text-fg">{editing ? t("ssh.profile") : t("ssh.title")}</h1>
         {editing ? <div className="flex shrink-0 items-center gap-2">
           <Button size="sm" variant="outline" disabled={busy} onClick={() => { setEditing(null); setDeleting(null); }}><ArrowLeft className="h-3.5 w-3.5" />{t("ssh.back")}</Button>
           <Button type="submit" form="ssh-profile-editor" size="sm" disabled={busy}>{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}{t("ssh.save")}</Button>
-        </div> : <Button size="sm" variant="outline" className="bg-field text-fg hover:bg-bg-elevated" disabled={busy || !snapshot || !!snapshot.error} onClick={() => setEditing({ id: crypto.randomUUID(), name: "", host: "", config_file: "", auto_connect: false, forwards: [emptyForward()] })}>
+        </div> : <Button size="sm" variant="outline" disabled={busy || !snapshot || !!snapshot.error} onClick={() => setEditing({ id: crypto.randomUUID(), name: "", host: "", config_file: "", auto_connect: false, forwards: [emptyForward()] })}>
           <Plus className="h-3.5 w-3.5" />{t("ssh.add")}
         </Button>}
       </div>
-
     </div>
-    {error || snapshot?.error ? <p role="alert" className="border border-danger/40 bg-danger/5 px-4 py-3 text-xs text-danger">{error ?? snapshot?.error}</p> : null}
+    <div ref={body} className="thin-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-4">
+    {error || snapshot?.error ? <p role="alert" className="rounded-2xl border border-danger/30 bg-danger/10 px-4 py-3 text-xs text-danger">{error ?? snapshot?.error}</p> : null}
     {!snapshot ? <p className="text-xs text-fg-muted">{t("app.loading")}</p> : null}
     {editing ? <Card>
       <form id="ssh-profile-editor" className="space-y-3 p-3 [&_input]:h-8 [&_input]:px-2 [&_input]:text-xs [&_label]:gap-1" onSubmit={(event) => {
@@ -88,7 +88,7 @@ export default function SshPanel() {
             function update(patch: Partial<typeof forward>) {
               setEditing({ ...editing!, forwards: editing!.forwards.map((f, i) => i === index ? { ...f, ...patch } : f) });
             }
-            return <fieldset key={index} className="min-w-0 border border-border p-2">
+            return <fieldset key={index} className="min-w-0 rounded-xl border border-border p-2">
               <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(0,.75fr)_1rem_minmax(0,1.2fr)_minmax(0,.75fr)_2rem] items-center gap-1.5 [&_input]:min-w-0 [&_input]:tabular-nums">
                 <Input aria-label={t("ssh.portLabel")} title={t("ssh.portLabel")} placeholder={t("ssh.portPlaceholder", { n: index + 1 })} maxLength={120} value={forward.label} onChange={(e) => update({ label: e.target.value })} />
                 <Input aria-label={t("ssh.localPort")} title={t("ssh.localPort")} type="text" inputMode="numeric" pattern="[0-9]+" maxLength={5} required value={forward.local_port || ""} onChange={(e) => update({ local_port: Number(e.target.value.replace(/[^0-9]/g, "")) })} />
@@ -127,7 +127,7 @@ export default function SshPanel() {
       const requested = !!live?.requested;
       return <Card key={profile.id}>
         <div className="flex items-center gap-3 px-4 py-3">
-          <span className={`h-2 w-2 shrink-0 ${connected ? "bg-ok" : requested ? "bg-warn pulse-dot" : "bg-fg-muted/40"}`} />
+          <span className={`size-2.5 shrink-0 rounded-full ${connected ? "bg-ok shadow-[0_0_10px_2px] shadow-ok/40" : requested ? "bg-warn pulse-dot" : "bg-fg-muted/40"}`} />
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-medium" title={profile.name}>{profile.name}</h2>
             <p role="status" className="mt-0.5 text-xs text-fg-muted">{t(`ssh.${phase}`)} <span className="text-fg-muted/60">· {profile.host}</span></p>
@@ -138,5 +138,6 @@ export default function SshPanel() {
       </Card>;
     })}
 
+    </div>
   </>;
 }

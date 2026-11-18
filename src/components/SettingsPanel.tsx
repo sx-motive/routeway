@@ -9,6 +9,7 @@ import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
 import { Card, Row, Rows } from "./ui/card";
 import { NumericInput } from "./ui/numeric-input";
+import { Segmented } from "./ui/segmented";
 import { LANGS, useI18n, type Lang } from "../i18n";
 import type { MaintenanceAction, Settings, Status } from "../lib/ipc";
 import type { Server } from "../lib/vless";
@@ -49,24 +50,7 @@ export default function SettingsPanel({
             interactive={false}
             label={t("settings.language")}
             control={
-              <div className="flex h-8 border border-border bg-field">
-                {LANGS.map(({ id, label }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    aria-pressed={lang === id}
-                    onClick={() => void changeLanguage(id)}
-                    className={[
-                      "px-3 text-xs transition-colors",
-                      lang === id
-                        ? "bg-bg-elevated text-fg"
-                        : "text-fg-muted hover:text-fg",
-                    ].join(" ")}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <Segmented value={lang} options={LANGS} onChange={(id) => void changeLanguage(id)} />
             }
           />
           <Row

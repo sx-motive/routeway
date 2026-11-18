@@ -111,7 +111,9 @@ impl CoreState {
             forget_pid(&app);
             let settings = crate::settings::load(&app);
             let recovery = app.state::<crate::recovery::RecoveryState>();
-            let restart = !settings.tun && recovery.token().is_some_and(|token| recovery.eligible(token));
+            let restart = !settings.tun
+                && !session_ending()
+                && recovery.token().is_some_and(|token| recovery.eligible(token));
             if !restart {
                 crate::release_system_proxy(&app, settings.listen_port).await;
             }
@@ -332,7 +334,18 @@ pub async fn restart_keeping_log(app: &AppHandle, settings: &Settings) -> Result
     start_inner(app, settings, false).await
 }
 
+/// Windows is logging off or shutting down; new processes would fail to start.
+fn session_ending() -> bool {
+    #[cfg(windows)]
+    return crate::shutdown::blocks_new_processes();
+    #[cfg(not(windows))]
+    false
+}
+
 async fn start_inner(app: &AppHandle, settings: &Settings, clear_log: bool) -> Result<(), String> {
+    if session_ending() {
+        return Err(t!("err.session_ending"));
+    }
     halt(app).await;
     reap_orphan(app);
     ensure_ports_free(settings).await?;

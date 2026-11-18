@@ -2,6 +2,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    // Children inherit the error mode. If Windows is already ending the session
+    // when the core starts, its loader fails with 0xc0000142; without this the
+    // failure becomes a blocking "Application Error" popup during shutdown.
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::System::Diagnostics::Debug::{SetErrorMode, SEM_FAILCRITICALERRORS};
+        SetErrorMode(SEM_FAILCRITICALERRORS);
+    }
+
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some(routeway_lib::TUN_HOST_FLAG) {
         let dir = args.get(2).map(std::path::PathBuf::from);

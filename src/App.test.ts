@@ -8,7 +8,7 @@ import type { Health, Status } from "./lib/ipc";
 const { handlers, ipc } = vi.hoisted(() => ({
   handlers: new Map<string, (event: { payload: unknown }) => void>(),
   ipc: {
-    initialize: vi.fn(), getHealth: vi.fn(), checkHealth: vi.fn(), getStatus: vi.fn(),
+    initialize: vi.fn(), getHealth: vi.fn(), getStatus: vi.fn(),
     checkIp: vi.fn(), getRules: vi.fn(), saveRules: vi.fn(),
     saveSettings: vi.fn(), setLanguage: vi.fn(), connect: vi.fn(), disconnect: vi.fn(),
     revealRules: vi.fn(), revealConfig: vi.fn(), minimizeWindow: vi.fn(), hideWindow: vi.fn(),
@@ -43,6 +43,7 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   handlers.clear();
   vi.resetAllMocks();
+  globalThis.localStorage?.clear?.();
   ipc.initialize.mockResolvedValue({ status, error: null });
   ipc.getHealth.mockResolvedValue({ tunnel: [], tunnel_active: false });
   ipc.getStatus.mockResolvedValue(status);
@@ -88,6 +89,8 @@ it("collects logs on Settings and keeps a cleared log empty after switching tabs
   };
   await act(async () => handlers.get("core-log")!({ payload: event }));
   await click(translate("en", "tab.home"));
+  expect(container.textContent).not.toContain("background event");
+  await click(translate("en", "log.title"));
   expect(container.textContent).toContain("background event");
   await click("Clear");
   await click("Settings");
@@ -224,7 +227,6 @@ it("shows tunnel latency and its failure rate", async () => {
     tunnel_active: true,
   });
   await mount();
-  expect(container.textContent).toContain(translate("en", "health.modeTunnel"));
   expect(container.textContent).toContain(translate("en", "health.failures", { pct: 100 }));
   await act(async () => handlers.get("health")!({ payload: {
     tunnel: [{ ms: null, error: "timeout", at: 1000 }, { ms: 260, error: null, at: 2000 }],
@@ -234,17 +236,6 @@ it("shows tunnel latency and its failure rate", async () => {
   expect(container.textContent).toContain(translate("en", "health.failures", { pct: 50 }));
 });
 
-it("checks the tunnel on demand", async () => {
-  ipc.getHealth.mockResolvedValue({ tunnel: [], tunnel_active: true });
-  ipc.checkHealth.mockResolvedValue({ tunnel: [], tunnel_active: true });
-  await mount();
-  const button = container.querySelector<HTMLButtonElement>(
-    `button[aria-label="${translate("en", "health.checkNow")}"]`,
-  )!;
-  await act(async () => button.click());
-  expect(ipc.checkHealth).toHaveBeenCalledOnce();
-});
-
 it("does not display old tunnel latency after disconnection", async () => {
   ipc.getHealth.mockResolvedValue({
     tunnel: [{ ms: 260, error: null, at: 1000 }],
@@ -252,8 +243,6 @@ it("does not display old tunnel latency after disconnection", async () => {
   });
   await mount();
   expect(container.textContent).not.toContain(translate("en", "health.ms", { ms: 260 }));
-  expect(container.textContent).toContain(translate("en", "health.afterConnect"));
-  expect(container.querySelector(`button[aria-label="${translate("en", "health.checkNow")}"]`)).toBeNull();
 });
 
 it("opens project and license links through the native opener", async () => {

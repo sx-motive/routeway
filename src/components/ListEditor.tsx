@@ -111,7 +111,7 @@ export function ListEditor({
             {shown.map((item) => (
               <li
                 key={item}
-                className="group flex h-9 items-center justify-between border-b border-border/60 px-4 last:border-b-0 hover:bg-bg-elevated/50"
+                className="group flex h-9 items-center justify-between border-b border-border/60 px-4 transition-colors last:border-b-0 hover:bg-bg-elevated/60"
               >
                 <span className="truncate font-mono text-xs text-fg">{item}</span>
                 <button

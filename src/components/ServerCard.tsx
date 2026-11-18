@@ -53,7 +53,7 @@ export function ServerCard({ server, onChange }: ServerCardProps) {
             {server.address}:{server.port}
           </span>
           {server.public_key ? (
-            <span className="ml-auto shrink-0 border border-border px-1.5 py-0.5 text-[10px] tracking-wider text-fg-muted uppercase">
+            <span className="ml-auto shrink-0 rounded-full bg-bg-elevated px-2 py-0.5 text-[10px] tracking-wider text-fg-muted uppercase">
               reality
             </span>
           ) : null}

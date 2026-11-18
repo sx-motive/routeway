@@ -2,13 +2,11 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ArrowDownToLine, Loader2 } from "lucide-react";
 import { TitleBar, type Tab } from "./components/TitleBar";
-import { ServerStatus } from "./components/ServerStatus";
+import { ConnectionCard } from "./components/ConnectionCard";
 import { CoreLog } from "./components/CoreLog";
 import type { LogEvent } from "./lib/coreLog";
 import { createLogStore } from "./lib/logStore";
 import { Button } from "./components/ui/button";
-import { Switch } from "./components/ui/switch";
-import { Card } from "./components/ui/card";
 import {
   checkIp,
   connect,
@@ -168,29 +166,11 @@ export function App() {
     );
   }
 
-  const { settings, running, system_proxy_active, tun_active } = status;
-  const connectionRequested = running || Boolean(status.connection_requested);
+  const { running } = status;
   const working = busy !== "idle";
 
-  const routed = [
-    settings.processes.length > 0
-      ? t("count.apps", { n: settings.processes.length })
-      : null,
-    settings.domains.length > 0
-      ? t("count.domains", { n: settings.domains.length })
-      : null,
-  ].filter((part): part is string => part !== null);
-  const routedSummary = settings.route_all
-    ? t("status.allRouted", { server: settings.server?.label ?? t("status.server") })
-    : routed.length === 0
-      ? t("status.nothingRouted")
-      : t("status.routed", {
-          items: routed.length === 2 ? t("status.join", { a: routed[0], b: routed[1] }) : routed[0],
-          server: settings.server?.label ?? t("status.server"),
-        });
-
   const updateBanner = update ? (
-    <div className="flex shrink-0 items-center justify-between border border-accent/40 bg-accent/5 px-4 py-2">
+    <div className="flex shrink-0 items-center justify-between rounded-2xl border border-accent/30 bg-accent/10 py-2 pr-2 pl-4">
       <span className="text-xs text-fg">
         {t("update.available", { version: update.version })}
         {update.notes ? <span className="text-fg-muted"> · {update.notes}</span> : null}
@@ -217,7 +197,7 @@ export function App() {
   ) : null;
 
   const errorBanner = error ? (
-    <p className="shrink-0 border border-danger/40 bg-danger/5 px-4 py-2.5 text-xs text-danger">
+    <p className="shrink-0 rounded-2xl border border-danger/30 bg-danger/10 px-4 py-2.5 text-xs text-danger">
       {error}
     </p>
   ) : null;
@@ -230,60 +210,20 @@ export function App() {
         <div className="thin-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
           {updateBanner}
 
-          <Card className="shrink-0">
-            <div className="flex min-h-16 items-center gap-3 px-4 py-3">
-              <span
-                className={[
-                  "h-2 w-2 shrink-0",
-                  working || (connectionRequested && !running) ? "bg-warn pulse-dot" : running ? "bg-ok" : "bg-fg-muted/40",
-                ].join(" ")}
-              />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm text-fg" title={running ? routedSummary : t("status.allDirect")}>
-                  {working
-                    ? busy === "connecting"
-                      ? t("status.connecting")
-                      : t("status.disconnecting")
-                    : connectionRequested && !running
-                      ? t("recovery.recovering")
-                    : running
-                      ? tun_active
-                        ? t("status.onTun")
-                        : t("status.on")
-                      : t("status.off")}
-                </p>
-              </div>
-              <Switch
-                checked={connectionRequested}
-                disabled={working || !settings.server}
-                onCheckedChange={(on) => void toggle(on)}
-                aria-label={t("status.toggle")}
-              />
-            </div>
-            {running && !tun_active && settings.system_proxy && !system_proxy_active ? (
-              <p className="border-t border-border px-4 py-2.5 text-xs text-warn">
-                {t("warn.proxyNotSet")}
-              </p>
-            ) : null}
-            {running && !tun_active && !settings.system_proxy ? (
-              <p className="border-t border-border px-4 py-2.5 text-xs text-fg-muted">
-                {t("warn.proxyOff", { port: settings.listen_port })}
-              </p>
-            ) : null}
-          </Card>
+          <ConnectionCard
+            status={status}
+            busy={busy}
+            onToggle={(on) => void toggle(on)}
+            onEditServer={() => setTab("settings")}
+          />
 
           {errorBanner}
-
-          <ServerStatus
-            server={settings.server}
-            onEdit={() => setTab("settings")}
-          />
 
           <CoreLog store={logStore} />
         </div>
       ) : tab === "ssh" ? (
-        <div className="thin-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-4">
-          <Suspense fallback={<p className="text-xs text-fg-muted">{t("app.loading")}</p>}>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <Suspense fallback={<p className="px-4 text-xs text-fg-muted">{t("app.loading")}</p>}>
             <SshPanel />
           </Suspense>
         </div>
